@@ -1,0 +1,7 @@
+{
+  "Copied %n items": { "one": "Copied %n item", "other": "Copied %n items" },
+  "Moved %n items": { "one": "Moved %n item", "other": "Moved %n items" },
+  "Moved %n items to the trash": { "one": "Moved %n item to the trash", "other": "Moved %n items to the trash" },
+  "Move %n items to the trash?": { "one": "Move %n item to the trash?", "other": "Move %n items to the trash?" },
+  "%n marked": { "one": "%n marked", "other": "%n marked" }
+}

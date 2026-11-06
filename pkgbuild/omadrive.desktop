@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Omadrive
+Comment=Two-pane file manager for local folders and OneDrive
+Exec=omadrive %f
+Icon=omadrive
+Terminal=false
+Categories=Utility;FileManager;
+StartupWMClass=omadrive
