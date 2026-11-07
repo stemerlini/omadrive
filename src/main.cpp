@@ -7,9 +7,12 @@
 #include <QQuickStyle>
 #include <QUrl>
 
+#include "account.h"
 #include "backend.h"
 #include "folderlist.h"
+#include "onedrivelist.h"
 #include "theme.h"
+#include "transfer.h"
 #include "translator.h"
 
 int main(int argc, char *argv[]) {
@@ -34,6 +37,10 @@ int main(int argc, char *argv[]) {
     FolderList left, right;
     left.setPath(backend.homePath());
     right.setPath(backend.homePath());
+    Account account;
+    OneDriveList oneDrive(&account);
+    Transfer transfer;
+    account.restore();
 
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
@@ -42,6 +49,9 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.rootContext()->setContextProperty("leftFolder", &left);
     engine.rootContext()->setContextProperty("rightFolder", &right);
+    engine.rootContext()->setContextProperty("account", &account);
+    engine.rootContext()->setContextProperty("oneDrive", &oneDrive);
+    engine.rootContext()->setContextProperty("transfer", &transfer);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

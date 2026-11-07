@@ -16,8 +16,12 @@ Rectangle {
     property string lastPath: ""
     property int lastIndex: 0
     property bool resetting: false
+    // The OneDrive pane: paths are OneDrive paths and it needs a sign-in.
+    property bool remote: false
+    readonly property bool needsSignIn: remote && !account.signedIn
 
     signal focusRequested()
+    signal notice(string text)
 
     color: "#131316"
     radius: theme.radius
@@ -52,6 +56,10 @@ Rectangle {
     function clearMarks() { marked = ({}) }
 
     function openCurrent() {
+        if (needsSignIn) {
+            account.signIn()
+            return
+        }
         var path = currentPath()
         if (!path)
             return
@@ -59,6 +67,8 @@ Rectangle {
             lastPath = ""
             lastIndex = 0
             folder.path = path
+        } else if (remote) {
+            notice(qsTr("Press F5 to download this file"))
         } else {
             backend.openExternally(path)
         }
@@ -94,7 +104,7 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             Label {
-                text: pane.title
+                text: pane.remote && account.signedIn && account.name !== "" ? pane.title + " · " + account.name : pane.title
                 font.bold: true
                 color: pane.active ? theme.accent : "#9a9aa0"
             }
@@ -191,8 +201,28 @@ Rectangle {
         Label {
             Layout.fillWidth: true
             color: "#9a9aa0"
-            text: pane.markedCount > 0 ? qsTr("%n marked", "", pane.markedCount)
-                                       : qsTr("%n items", "", list.count)
+            text: pane.remote && pane.folder.loading ? qsTr("Loading…")
+                : pane.markedCount > 0 ? qsTr("%n marked", "", pane.markedCount)
+                : qsTr("%n items", "", list.count)
+        }
+    }
+
+    ColumnLayout {
+        anchors.centerIn: parent
+        visible: pane.needsSignIn
+        spacing: 12
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            text: account.state === "signingIn" ? qsTr("Waiting for the Microsoft sign-in…")
+                                                : qsTr("Not signed in to OneDrive")
+            color: "#e6e6e6"
+        }
+        Button {
+            Layout.alignment: Qt.AlignHCenter
+            visible: account.state === "signedOut"
+            text: qsTr("Sign in with Microsoft (Enter)")
+            highlighted: true
+            onClicked: { pane.focusRequested(); account.signIn() }
         }
     }
 }

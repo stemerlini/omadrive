@@ -18,6 +18,7 @@ ApplicationWindow {
     Material.roundedScale: theme.radius
 
     property bool leftActive: true
+    property bool rightRemote: true
     readonly property var activePane: leftActive ? leftPane : rightPane
     readonly property var otherPane: leftActive ? rightPane : leftPane
     property string message: ""
@@ -41,24 +42,41 @@ ApplicationWindow {
         activePane.focusList()
     }
 
-    function copy() {
+    // Left is always the local disk; the right pane is OneDrive or a second
+    // local folder (Ctrl+O). OneDrive work runs in the background and ends in
+    // transfer.onFinished.
+    function crossing() { return activePane.remote !== otherPane.remote }
+
+    function transferItems(removeSource) {
         var items = activePane.targets()
         if (items.length === 0)
             return
-        report(backend.copyItems(items, otherPane.folder.path), qsTr("Copied %n items", "", items.length))
-        activePane.clearMarks()
-        activePane.folder.refresh()
-        otherPane.folder.refresh()
+        if (!activePane.remote && !otherPane.remote) {
+            var error = removeSource ? backend.moveItems(items, otherPane.folder.path)
+                                     : backend.copyItems(items, otherPane.folder.path)
+            report(error, removeSource ? qsTr("Moved %n items", "", items.length) : qsTr("Copied %n items", "", items.length))
+            activePane.clearMarks()
+            activePane.folder.refresh()
+            otherPane.folder.refresh()
+        } else if (!account.signedIn) {
+            say(qsTr("Sign in to OneDrive first"), true)
+        } else if (activePane.remote && otherPane.remote) {
+            say(qsTr("Copying inside OneDrive is not supported yet"), true)
+        } else if (activePane.remote) {
+            transfer.download(items, otherPane.folder.path, removeSource)
+        } else {
+            transfer.upload(items, otherPane.folder.path, removeSource)
+        }
     }
 
-    function move() {
-        var items = activePane.targets()
-        if (items.length === 0)
-            return
-        report(backend.moveItems(items, otherPane.folder.path), qsTr("Moved %n items", "", items.length))
-        activePane.clearMarks()
-        activePane.folder.refresh()
-        otherPane.folder.refresh()
+    function copy() { transferItems(false) }
+    function move() { transferItems(true) }
+
+    function toggleRight() {
+        rightRemote = !rightRemote
+        rightPane.clearMarks()
+        if (rightRemote && account.state === "signedOut")
+            account.signIn()
     }
 
     function askNewFolder() {
@@ -77,7 +95,23 @@ ApplicationWindow {
             prompt.ask("trash", qsTr("Trash"), qsTr("Move %n items to the trash?", "", items.length), false, "")
     }
 
+    function runRemotePrompt(action, text) {
+        if (!account.signedIn) {
+            say(qsTr("Sign in to OneDrive first"), true)
+        } else if (action === "mkdir") {
+            transfer.makeFolder(activePane.folder.path, text.trim())
+        } else if (action === "rename") {
+            transfer.renameItem(activePane.currentPath(), text.trim())
+        } else if (action === "trash") {
+            transfer.trash(activePane.targets())
+        }
+    }
+
     function runPrompt(action, text) {
+        if (activePane.remote) {
+            runRemotePrompt(action, text)
+            return
+        }
         if (action === "mkdir") {
             report(backend.makeFolder(activePane.folder.path, text.trim()), qsTr("Folder created"))
         } else if (action === "rename") {
@@ -116,6 +150,31 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: transfer
+        function onFinished(error, text) {
+            win.report(error, text)
+            leftPane.clearMarks()
+            rightPane.clearMarks()
+            leftFolder.refresh()
+            rightFolder.refresh()
+            oneDrive.refresh()
+        }
+    }
+
+    Connections {
+        target: account
+        function onStateChanged() {
+            if (account.error !== "")
+                win.say(account.error, true)
+            else if (account.signedIn)
+                win.say(qsTr("Signed in as %1").arg(account.name), false)
+        }
+    }
+
+    Shortcut { sequence: "Ctrl+O"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.toggleRight() }
+    Shortcut { sequence: "Ctrl+Shift+L"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: account.signOut() }
+
     Timer { id: messageTimer; interval: 6000; onTriggered: win.message = "" }
 
     // Right-to-left languages mirror the window; the Translator sets the
@@ -143,16 +202,19 @@ ApplicationWindow {
                     title: qsTr("Local")
                     active: win.leftActive
                     onFocusRequested: { win.leftActive = true; focusList() }
+                    onNotice: text => win.say(text, false)
                 }
 
                 FolderPane {
                     id: rightPane
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    folder: rightFolder
-                    title: qsTr("Local")
+                    folder: win.rightRemote ? oneDrive : rightFolder
+                    remote: win.rightRemote
+                    title: win.rightRemote ? qsTr("OneDrive") : qsTr("Local")
                     active: !win.leftActive
                     onFocusRequested: { win.leftActive = false; focusList() }
+                    onNotice: text => win.say(text, false)
                 }
             }
 
@@ -160,6 +222,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 text: win.message !== "" ? win.message
+                    : transfer.busy ? (transfer.progress !== "" ? transfer.progress : qsTr("Working with OneDrive…"))
                     : qsTr("Tab switch pane   Space mark   F5 copy   F6 move   F7 new folder   F2 rename   F8 trash   ? help")
                 color: win.message === "" ? "#9a9aa0" : win.messageIsError ? "#f7768e" : theme.accent
             }
@@ -226,6 +289,8 @@ ApplicationWindow {
                     ["F2", qsTr("Rename")],
                     ["F8 / Delete", qsTr("Move to the trash")],
                     ["Ctrl+H", qsTr("Show hidden files")],
+                    ["Ctrl+O", qsTr("Right pane: OneDrive or local")],
+                    ["Ctrl+Shift+L", qsTr("Sign out of OneDrive")],
                     ["Q", qsTr("Quit")]
                 ]
                 delegate: Row {

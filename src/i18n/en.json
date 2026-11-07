@@ -1,7 +1,42 @@
 {
-  "Copied %n items": { "one": "Copied %n item", "other": "Copied %n items" },
-  "Moved %n items": { "one": "Moved %n item", "other": "Moved %n items" },
-  "Moved %n items to the trash": { "one": "Moved %n item to the trash", "other": "Moved %n items to the trash" },
-  "Move %n items to the trash?": { "one": "Move %n item to the trash?", "other": "Move %n items to the trash?" },
-  "%n marked": { "one": "%n marked", "other": "%n marked" }
+  "Copied %n items": {
+    "one": "Copied %n item",
+    "other": "Copied %n items"
+  },
+  "Moved %n items": {
+    "one": "Moved %n item",
+    "other": "Moved %n items"
+  },
+  "Moved %n items to the trash": {
+    "one": "Moved %n item to the trash",
+    "other": "Moved %n items to the trash"
+  },
+  "Move %n items to the trash?": {
+    "one": "Move %n item to the trash?",
+    "other": "Move %n items to the trash?"
+  },
+  "%n marked": {
+    "one": "%n marked",
+    "other": "%n marked"
+  },
+  "Downloaded %n items": {
+    "one": "Downloaded %n item",
+    "other": "Downloaded %n items"
+  },
+  "Uploaded %n items": {
+    "one": "Uploaded %n item",
+    "other": "Uploaded %n items"
+  },
+  "Moved %n items from OneDrive": {
+    "one": "Moved %n item from OneDrive",
+    "other": "Moved %n items from OneDrive"
+  },
+  "Moved %n items to OneDrive": {
+    "one": "Moved %n item to OneDrive",
+    "other": "Moved %n items to OneDrive"
+  },
+  "Moved %n items to the OneDrive recycle bin": {
+    "one": "Moved %n item to the OneDrive recycle bin",
+    "other": "Moved %n items to the OneDrive recycle bin"
+  }
 }
