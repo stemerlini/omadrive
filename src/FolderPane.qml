@@ -21,11 +21,14 @@ Rectangle {
     // The OneDrive pane: paths are OneDrive paths and it needs a sign-in.
     property bool remote: false
     readonly property bool needsSignIn: remote && !account.signedIn
+    readonly property string currentItemPath: list.currentItem ? list.currentItem.path : ""
+    readonly property string currentItemCloud: list.currentItem ? list.currentItem.cloud : ""
     readonly property var segments: folder.path.split("/").filter(function (s) { return s !== "" })
 
     signal focusRequested()
     signal notice(string text)
     signal menuAction(string action)
+    signal openRemote(string path, string cloud)
     signal itemsDropped(var paths, bool fromRemote, string destPath, bool move)
 
     color: "#131316"
@@ -104,7 +107,7 @@ Rectangle {
             lastIndex = 0
             folder.path = path
         } else if (remote) {
-            notice(qsTr("Press F5 to download this file"))
+            openRemote(path, currentItemCloud)
         } else {
             backend.openExternally(path)
         }
@@ -168,6 +171,13 @@ Rectangle {
     Menu {
         id: menu
         MenuItem { text: qsTr("Open"); onTriggered: pane.menuAction("open") }
+        MenuItem { text: qsTr("Preview"); onTriggered: pane.menuAction("preview") }
+        MenuItem {
+            text: qsTr("Download to %1").arg(mirror.root.replace(backend.homePath(), "~"))
+            visible: pane.remote
+            height: visible ? implicitHeight : 0
+            onTriggered: pane.menuAction("mirror")
+        }
         MenuSeparator {}
         MenuItem { text: qsTr("Copy to the other pane"); onTriggered: pane.menuAction("copy") }
         MenuItem { text: qsTr("Move to the other pane"); onTriggered: pane.menuAction("move") }
@@ -253,6 +263,21 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
 
+            Keys.onPressed: event => {
+                const page = Math.max(1, Math.floor(height / 28) - 1)
+                if (event.key === Qt.Key_Home)
+                    currentIndex = 0
+                else if (event.key === Qt.Key_End)
+                    currentIndex = count - 1
+                else if (event.key === Qt.Key_PageUp)
+                    currentIndex = Math.max(0, currentIndex - page)
+                else if (event.key === Qt.Key_PageDown)
+                    currentIndex = Math.min(count - 1, currentIndex + page)
+                else
+                    return
+                event.accepted = true
+            }
+
             onCurrentIndexChanged: {
                 if (pane.resetting || currentIndex < 0)
                     return
@@ -268,6 +293,9 @@ Rectangle {
                 required property bool isDir
                 required property string sizeText
                 required property string modified
+                required property var model
+                // Only the OneDrive listing has this role.
+                readonly property string cloud: pane.remote && model.cloud ? model.cloud : ""
 
                 // Dragging a marked row takes every marked item with it.
                 readonly property var dragPaths: pane.marked[path] ? Object.keys(pane.marked) : [path]
@@ -297,6 +325,19 @@ Rectangle {
                     anchors.leftMargin: 8
                     anchors.rightMargin: 8
                     spacing: 10
+                    Image {
+                        visible: row.cloud !== ""
+                        source: visible ? "qrc:/icons/" + row.cloud + ".svg" : ""
+                        sourceSize: Qt.size(16, 16)
+                        Layout.preferredWidth: 16
+                        Layout.preferredHeight: 16
+                        HoverHandler { id: cloudHover }
+                        ToolTip.visible: cloudHover.hovered
+                        ToolTip.delay: 400
+                        ToolTip.text: row.cloud === "local" ? qsTr("Available on this device")
+                                    : row.cloud === "changed" ? qsTr("The copy on this device differs from OneDrive")
+                                    : qsTr("Online only")
+                    }
                     Label {
                         Layout.fillWidth: true
                         text: row.isDir ? row.name + "/" : row.name

@@ -63,6 +63,7 @@ ApplicationWindow {
             rightPane.clearMarks()
             leftFolder.refresh()
             rightFolder.refresh()
+            oneDrive.recheck()
         } else if (!account.signedIn) {
             say(qsTr("Sign in to OneDrive first"), true)
         } else if (fromRemote && toRemote) {
@@ -75,6 +76,17 @@ ApplicationWindow {
     }
 
     function transferItems(removeSource) {
+        // F5/F6 out of OneDrive keep the cloud layout: they land in the mirror.
+        if (activePane.remote && !otherPane.remote) {
+            var items = activePane.targets()
+            if (items.length === 0)
+                return
+            if (!account.signedIn)
+                say(qsTr("Sign in to OneDrive first"), true)
+            else
+                transfer.downloadToMirror(items, removeSource)
+            return
+        }
         transferPaths(activePane.targets(), activePane.remote, otherPane.remote, otherPane.folder.path, removeSource)
     }
 
@@ -85,7 +97,44 @@ ApplicationWindow {
         else if (action === "rename") askRename()
         else if (action === "mkdir") askNewFolder()
         else if (action === "trash") askTrash()
+        else if (action === "preview") togglePreview()
+        else if (action === "mirror") transfer.downloadToMirror(activePane.targets(), false)
     }
+
+    // A OneDrive file opens from the mirror, downloading it first if needed.
+    property string pendingOpen: ""
+    function openRemote(path, cloud) {
+        if (cloud === "local") {
+            backend.openExternally(mirror.pathFor(path))
+        } else if (cloud === "changed") {
+            backend.openExternally(mirror.pathFor(path))
+            say(qsTr("Opened the copy on this device; it differs from OneDrive"), false)
+        } else {
+            pendingOpen = path
+            transfer.downloadToMirror([path], false)
+        }
+    }
+
+    function togglePreview() {
+        if (previewPopup.visible) {
+            previewPopup.close()
+        } else {
+            previewPopup.open()
+            preview.show(activePane.currentItemPath, activePane.remote)
+        }
+    }
+
+    // While the preview is open it follows the highlight, after a short pause
+    // so holding an arrow key does not fetch every file on the way.
+    readonly property string previewKey: activePane.remote + "|" + activePane.currentItemPath
+    onPreviewKeyChanged: if (previewPopup.visible) previewTimer.restart()
+    Timer {
+        id: previewTimer
+        interval: 150
+        onTriggered: preview.show(win.activePane.currentItemPath, win.activePane.remote)
+    }
+
+    onActiveChanged: if (active) oneDrive.recheck()
 
     function copy() { transferItems(false) }
     function move() { transferItems(true) }
@@ -141,6 +190,7 @@ ApplicationWindow {
         }
         activePane.folder.refresh()
         otherPane.folder.refresh()
+        oneDrive.recheck()
     }
 
     // Plain-letter shortcuts must not fire while a dialog takes text.
@@ -149,7 +199,9 @@ ApplicationWindow {
     Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: help.visible ? help.close() : help.open() }
     Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: Qt.quit() }
     Shortcut { sequence: "Tab"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.switchPane() }
-    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.toggleMark() }
+    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.togglePreview() }
+    Shortcut { sequences: ["Ins", "Ctrl+Space"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.toggleMark() }
+    Shortcut { sequence: "Esc"; context: Qt.ApplicationShortcut; enabled: previewPopup.visible && !win.typing; onActivated: previewPopup.close() }
     Shortcut { sequences: ["Return", "Enter", "Right"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.openCurrent() }
     Shortcut { sequences: ["Backspace", "Left"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.goUp() }
     Shortcut { sequence: "F5"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.copy() }
@@ -176,7 +228,13 @@ ApplicationWindow {
             rightPane.clearMarks()
             leftFolder.refresh()
             rightFolder.refresh()
+            oneDrive.recheck()
             oneDrive.refresh()
+            if (win.pendingOpen !== "") {
+                if (error === "")
+                    backend.openExternally(mirror.pathFor(win.pendingOpen))
+                win.pendingOpen = ""
+            }
         }
     }
 
@@ -223,6 +281,7 @@ ApplicationWindow {
                     onFocusRequested: { win.leftActive = true; focusList() }
                     onNotice: text => win.say(text, false)
                     onMenuAction: action => win.paneAction(action)
+                    onOpenRemote: (path, cloud) => win.openRemote(path, cloud)
                     onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
                 }
 
@@ -237,6 +296,7 @@ ApplicationWindow {
                     onFocusRequested: { win.leftActive = false; focusList() }
                     onNotice: text => win.say(text, false)
                     onMenuAction: action => win.paneAction(action)
+                    onOpenRemote: (path, cloud) => win.openRemote(path, cloud)
                     onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
                 }
             }
@@ -265,11 +325,16 @@ ApplicationWindow {
                     elide: Text.ElideRight
                     text: win.message !== "" ? win.message
                         : transfer.busy ? (transfer.progress !== "" ? transfer.progress : qsTr("Working with OneDrive…"))
-                        : qsTr("Drag files between panes · Shift while dropping moves")
+                        : qsTr("Space preview · Ins mark · drag between panes, Shift moves")
                     color: win.message === "" ? "#9a9aa0" : win.messageIsError ? "#f7768e" : theme.accent
                 }
             }
         }
+    }
+
+    PreviewPopup {
+        id: previewPopup
+        onClosed: { preview.clear(); win.activePane.focusList() }
     }
 
     Dialog {
@@ -325,14 +390,15 @@ ApplicationWindow {
                     ["↑ ↓", qsTr("Move")],
                     ["Enter / →", qsTr("Open folder or file")],
                     ["Backspace / ←", qsTr("Parent folder")],
-                    ["Space", qsTr("Mark or unmark")],
+                    ["Space", qsTr("Preview")],
+                    ["Ins / Ctrl+Space", qsTr("Mark or unmark")],
                     ["Ctrl+A", qsTr("Mark all")],
                     ["Click / Ctrl / Shift+click", qsTr("Select, toggle mark, mark range")],
                     ["Double-click", qsTr("Open")],
                     ["Right-click", qsTr("Context menu")],
                     ["Drag and drop", qsTr("Copy; hold Shift to move")],
-                    ["F5", qsTr("Copy to the other pane")],
-                    ["F6", qsTr("Move to the other pane")],
+                    ["F5", qsTr("Copy to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
+                    ["F6", qsTr("Move to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
                     ["F7", qsTr("New folder")],
                     ["F2", qsTr("Rename")],
                     ["F8 / Delete", qsTr("Move to the trash")],

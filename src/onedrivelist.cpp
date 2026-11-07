@@ -9,6 +9,7 @@
 
 #include "account.h"
 #include "graph.h"
+#include "mirror.h"
 
 namespace {
 
@@ -44,13 +45,14 @@ QVariant OneDriveList::data(const QModelIndex &index, int role) const {
     case IsDirRole: return e.isDir;
     case SizeTextRole: return e.isDir ? QString() : QLocale().formattedDataSize(e.size, 1);
     case ModifiedRole: return e.modified.isValid() ? QLocale().toString(e.modified, QLocale::ShortFormat) : QString();
+    case CloudRole: return e.cloud;
     }
     return {};
 }
 
 QHash<int, QByteArray> OneDriveList::roleNames() const {
     return {{NameRole, "name"}, {PathRole, "path"}, {IsDirRole, "isDir"},
-            {SizeTextRole, "sizeText"}, {ModifiedRole, "modified"}};
+            {SizeTextRole, "sizeText"}, {ModifiedRole, "modified"}, {CloudRole, "cloud"}};
 }
 
 void OneDriveList::setPath(const QString &path) {
@@ -90,9 +92,14 @@ void OneDriveList::fetch(const QString &path) {
         QVector<Entry> entries;
         for (const QJsonObject &item : listing.items) {
             const QString name = item.value("name").toString();
+            // The time the file was last changed on a device, as other
+            // OneDrive clients keep it; it is what the mirror is compared with.
+            QString stamp = item.value("fileSystemInfo").toObject().value("lastModifiedDateTime").toString();
+            if (stamp.isEmpty())
+                stamp = item.value("lastModifiedDateTime").toString();
             entries.append({name, Graph::joinPath(path, name), item.contains("folder"),
                             item.value("size").toInteger(),
-                            QDateTime::fromString(item.value("lastModifiedDateTime").toString(), Qt::ISODate).toLocalTime()});
+                            QDateTime::fromString(stamp, Qt::ISODate).toLocalTime(), {}});
         }
         // Folders first, then names without regard to case.
         std::sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
@@ -127,7 +134,9 @@ void OneDriveList::received(const QString &path, const QVector<Entry> &entries, 
         prefetch();
 }
 
-void OneDriveList::show(const QString &path, const QVector<Entry> &entries) {
+void OneDriveList::show(const QString &path, QVector<Entry> entries) {
+    for (Entry &e : entries)
+        e.cloud = Mirror::state(e.path, e.isDir, e.size, e.modified);
     if (path != m_path) {
         m_path = path;
         emit pathChanged();
@@ -137,11 +146,22 @@ void OneDriveList::show(const QString &path, const QVector<Entry> &entries) {
         && std::equal(entries.begin(), entries.end(), m_entries.begin(), [](const Entry &a, const Entry &b) {
                return a.path == b.path && a.size == b.size && a.modified == b.modified && a.isDir == b.isDir;
            });
-    if (same)
+    if (same) {
+        for (int i = 0; i < entries.size(); ++i) {
+            if (entries.at(i).cloud != m_entries.at(i).cloud) {
+                m_entries[i].cloud = entries.at(i).cloud;
+                emit dataChanged(index(i), index(i), {CloudRole});
+            }
+        }
         return;
+    }
     beginResetModel();
     m_entries = entries;
     endResetModel();
+}
+
+void OneDriveList::recheck() {
+    show(m_path, m_entries);
 }
 
 // Quietly load the folders you are most likely to open next.

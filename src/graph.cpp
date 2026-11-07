@@ -296,7 +296,7 @@ GraphReply Graph::call(const QByteArray &verb, const QString &urlOrPath, const Q
 
 QList<QJsonObject> Graph::children(const QString &path, QString *error) {
     QList<QJsonObject> items;
-    QString url = itemUrl(path) + "/children?$top=200&$select=name,size,folder,file,lastModifiedDateTime";
+    QString url = itemUrl(path) + "/children?$top=200&$select=name,size,folder,file,lastModifiedDateTime,fileSystemInfo";
     while (!url.isEmpty()) {
         const GraphReply reply = call("GET", url);
         if (!reply.ok()) {
@@ -379,6 +379,7 @@ bool Graph::uploadFile(const QString &localFile, const QString &remoteParent,
         return false;
     }
     progress(info.size());
+    stampModified(reply.json(), info.lastModified());
     return true;
 }
 
@@ -418,8 +419,20 @@ bool Graph::uploadLarge(const QString &localFile, const QString &remotePath,
         }
         sent += chunk.size();
         progress(sent);
+        if (sent >= total)
+            stampModified(reply.json(), QFileInfo(localFile).lastModified());
     }
     return true;
+}
+
+// Keeps the local file's modification time on OneDrive, like the Windows
+// client does, so the mirror copy is recognised as the same file.
+void Graph::stampModified(const QJsonObject &item, const QDateTime &modified) {
+    const QString id = item.value("id").toString();
+    if (id.isEmpty() || !modified.isValid())
+        return;
+    const QJsonObject info{{"lastModifiedDateTime", modified.toUTC().toString(Qt::ISODate)}};
+    call("PATCH", "https://graph.microsoft.com/v1.0/me/drive/items/" + id, QJsonDocument(QJsonObject{{"fileSystemInfo", info}}).toJson(QJsonDocument::Compact));
 }
 
 QString Graph::createFolder(const QString &remoteParent, const QString &name, bool failIfExists, QString *error) {

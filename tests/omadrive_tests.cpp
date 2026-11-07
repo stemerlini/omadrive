@@ -5,6 +5,8 @@
 
 #include "backend.h"
 #include "folderlist.h"
+#include "mirror.h"
+#include "preview.h"
 #include "theme.h"
 #include "translator.h"
 
@@ -121,6 +123,43 @@ private slots:
         Translator translator(dir.path() + "/language", dir.path());
         QCOMPARE(translator.language(), QString("en"));
         QVERIFY(translator.translate("Main", "Save").isNull());
+    }
+
+    void mirrorCopyMatchesOnlySameSizeAndTime()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("a.txt");
+        write(path, "hello");
+        const QDateTime stamp = QDateTime::fromString("2026-01-02T03:04:05Z", Qt::ISODate);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::Append));
+        QVERIFY(file.setFileTime(stamp, QFileDevice::FileModificationTime));
+        file.close();
+
+        QVERIFY(Mirror::sameFile(path, 5, stamp));
+        QVERIFY(!Mirror::sameFile(path, 6, stamp));
+        QVERIFY(!Mirror::sameFile(path, 5, stamp.addSecs(60)));
+        QVERIFY(!Mirror::sameFile(dir.filePath("missing"), 5, stamp));
+    }
+
+    void previewPicksKindFromContents()
+    {
+        QTemporaryDir dir;
+        write(dir.filePath("notes.txt"), "line one\nline two");
+        QImage(4, 4, QImage::Format_RGB32).save(dir.filePath("pic.png"));
+        write(dir.filePath("doc.pdf"), "%PDF-1.4\n");
+        write(dir.filePath("blob.bin"), QByteArray("\x00\x01\x02\xff", 4));
+        QDir(dir.path()).mkdir("sub");
+
+        const Preview::Result text = Preview::local(dir.filePath("notes.txt"));
+        QCOMPARE(text.kind, QString("text"));
+        QCOMPARE(text.text, QString("line one\nline two"));
+        QCOMPARE(Preview::local(dir.filePath("pic.png")).kind, QString("image"));
+        QCOMPARE(Preview::local(dir.filePath("doc.pdf")).kind, QString("pdf"));
+        QCOMPARE(Preview::local(dir.filePath("blob.bin")).kind, QString("info"));
+        const Preview::Result folder = Preview::local(dir.path());
+        QCOMPARE(folder.kind, QString("folder"));
+        QCOMPARE(folder.entries.first(), QString("sub/"));
     }
 
 private:

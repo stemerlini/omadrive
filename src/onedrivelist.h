@@ -15,7 +15,7 @@ class OneDriveList : public QAbstractListModel {
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
 
 public:
-    enum Roles { NameRole = Qt::UserRole + 1, PathRole, IsDirRole, SizeTextRole, ModifiedRole };
+    enum Roles { NameRole = Qt::UserRole + 1, PathRole, IsDirRole, SizeTextRole, ModifiedRole, CloudRole };
 
     explicit OneDriveList(Account *account, QObject *parent = nullptr);
 
@@ -33,6 +33,8 @@ public:
     Q_INVOKABLE QString pathAt(int row) const;
     Q_INVOKABLE bool isDirAt(int row) const;
     Q_INVOKABLE int indexOfPath(const QString &path) const;
+    // Re-reads the local mirror so the cloud icons follow a download.
+    Q_INVOKABLE void recheck();
 
 signals:
     void pathChanged();
@@ -45,12 +47,13 @@ private:
         bool isDir;
         qint64 size;
         QDateTime modified;
+        QString cloud;  // see Mirror::state
     };
 
     void navigate(const QString &path);
     void fetch(const QString &path);
     void received(const QString &path, const QVector<Entry> &entries, const QString &error);
-    void show(const QString &path, const QVector<Entry> &entries);
+    void show(const QString &path, QVector<Entry> entries);
     void prefetch();
     void clear();
     void setLoading(bool loading);

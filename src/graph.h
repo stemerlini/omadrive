@@ -59,6 +59,7 @@ private:
 
     bool tokenRequest(const QList<QPair<QString, QString>> &form, QString *error);
     QString accessToken(QString *error);
+    void stampModified(const QJsonObject &item, const QDateTime &modified);
     bool uploadLarge(const QString &localFile, const QString &remotePath,
                      const std::function<void(qint64)> &progress, QString *error);
 

@@ -13,6 +13,7 @@
 
 #include "backend.h"
 #include "graph.h"
+#include "mirror.h"
 
 namespace {
 
@@ -36,7 +37,10 @@ QString size(qint64 bytes) {
 
 // Each returns the problems it met, one per line, and carries on past a
 // failed file so one bad item does not stop the rest.
-QStringList downloadOne(Graph &graph, const QString &remote, const QString &localDir, const Say &say) {
+// With merge (the mirror) a folder joins an existing one and a file replaces
+// an older local copy, whose previous version goes to the trash; an identical
+// copy is left alone. Without it nothing is touched and clashes are renamed.
+QStringList downloadOne(Graph &graph, const QString &remote, const QString &localDir, const Say &say, bool merge) {
     const GraphReply meta = graph.call("GET", Graph::itemUrl(remote));
     if (!meta.ok())
         return {meta.error};
@@ -44,8 +48,8 @@ QStringList downloadOne(Graph &graph, const QString &remote, const QString &loca
     const QString name = item.value("name").toString();
 
     if (item.contains("folder")) {
-        const QString target = Backend::uniquePath(localDir, name);
-        if (!QDir().mkdir(target))
+        const QString target = merge ? localDir + "/" + name : Backend::uniquePath(localDir, name);
+        if (!QDir().mkpath(target))
             return {tr("Cannot create %1").arg(target)};
         QString error;
         const QList<QJsonObject> kids = graph.children(remote, &error);
@@ -53,7 +57,7 @@ QStringList downloadOne(Graph &graph, const QString &remote, const QString &loca
             return {error};
         QStringList errors;
         for (const QJsonObject &kid : kids)
-            errors += downloadOne(graph, Graph::joinPath(remote, kid.value("name").toString()), target, say);
+            errors += downloadOne(graph, Graph::joinPath(remote, kid.value("name").toString()), target, say, merge);
         return errors;
     }
 
@@ -61,10 +65,25 @@ QStringList downloadOne(Graph &graph, const QString &remote, const QString &loca
     if (url.isEmpty())
         return {tr("OneDrive gave no download link for %1").arg(name)};
 
-    const QString target = Backend::uniquePath(localDir, name);
+    const qint64 total = item.value("size").toInteger();
+    QString stamp = item.value("fileSystemInfo").toObject().value("lastModifiedDateTime").toString();
+    if (stamp.isEmpty())
+        stamp = item.value("lastModifiedDateTime").toString();
+    const QDateTime modified = QDateTime::fromString(stamp, Qt::ISODate);
+
+    const QString target = merge ? localDir + "/" + name : Backend::uniquePath(localDir, name);
+    if (merge && QFileInfo::exists(target)) {
+        if (Mirror::sameFile(target, total, modified))
+            return {};
+        // A copy changed on this device after OneDrive's is an edit, not a
+        // stale download: keep it.
+        if (modified.isValid() && QFileInfo(target).lastModified() > modified.addSecs(2))
+            return {tr("%1 is newer on this device and was kept; upload it to update OneDrive").arg(name)};
+        if (!QFile::moveToTrash(target))
+            return {tr("Cannot move the old %1 to the trash").arg(name)};
+    }
     const QString partial = target + ".omadrive-part";
     QFile::remove(partial);
-    const qint64 total = item.value("size").toInteger();
     QString error;
     const bool ok = graph.download(QUrl(url), partial, [&](qint64 got) {
         say(QString("%1: %2 / %3").arg(name, size(got), size(total)));
@@ -77,6 +96,10 @@ QStringList downloadOne(Graph &graph, const QString &remote, const QString &loca
         QFile::remove(partial);
         return {tr("Cannot write %1").arg(target)};
     }
+    // Keep OneDrive's time, so the copy is known to match.
+    QFile file(target);
+    if (modified.isValid() && file.open(QIODevice::Append))
+        file.setFileTime(modified, QFileDevice::FileModificationTime);
     return {};
 }
 
@@ -143,12 +166,27 @@ void Transfer::start(std::function<Result(const Say &)> job) {
 }
 
 void Transfer::download(const QStringList &remotePaths, const QString &localDir, bool removeSource) {
+    downloadAll(remotePaths, [localDir](const QString &) { return localDir; }, false, removeSource);
+}
+
+void Transfer::downloadToMirror(const QStringList &remotePaths, bool removeSource) {
+    downloadAll(remotePaths, [](const QString &remote) { return Mirror::localPath(Graph::parentPath(remote)); },
+                true, removeSource);
+}
+
+void Transfer::downloadAll(const QStringList &remotePaths, const std::function<QString(const QString &)> &dirFor,
+                           bool merge, bool removeSource) {
     start([=](const Say &say) {
         Graph &graph = Graph::instance();
         QStringList errors;
         int done = 0;
         for (const QString &remote : remotePaths) {
-            const QStringList problems = downloadOne(graph, remote, localDir, say);
+            const QString dir = dirFor(remote);
+            if (!QDir().mkpath(dir)) {
+                errors << tr("Cannot create %1").arg(dir);
+                continue;
+            }
+            const QStringList problems = downloadOne(graph, remote, dir, say, merge);
             if (!problems.isEmpty()) {
                 errors += problems;
                 continue;

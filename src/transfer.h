@@ -21,6 +21,8 @@ public:
     QString progress() const { return m_progress; }
 
     Q_INVOKABLE void download(const QStringList &remotePaths, const QString &localDir, bool removeSource);
+    // Into the same path under the mirror folder (~/OneDrive).
+    Q_INVOKABLE void downloadToMirror(const QStringList &remotePaths, bool removeSource);
     Q_INVOKABLE void upload(const QStringList &localPaths, const QString &remoteDir, bool removeSource);
     Q_INVOKABLE void makeFolder(const QString &remoteParent, const QString &name);
     Q_INVOKABLE void renameItem(const QString &remotePath, const QString &newName);
@@ -38,6 +40,8 @@ private:
     using Say = std::function<void(const QString &)>;
 
     void start(std::function<Result(const Say &)> job);
+    void downloadAll(const QStringList &remotePaths, const std::function<QString(const QString &)> &dirFor,
+                     bool merge, bool removeSource);
 
     bool m_busy = false;
     QString m_progress;

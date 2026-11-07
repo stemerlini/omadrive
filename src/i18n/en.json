@@ -38,5 +38,9 @@
   "Moved %n items to the OneDrive recycle bin": {
     "one": "Moved %n item to the OneDrive recycle bin",
     "other": "Moved %n items to the OneDrive recycle bin"
+  },
+  "%n items": {
+    "one": "%n item",
+    "other": "%n items"
   }
 }

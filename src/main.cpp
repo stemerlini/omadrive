@@ -10,7 +10,9 @@
 #include "account.h"
 #include "backend.h"
 #include "folderlist.h"
+#include "mirror.h"
 #include "onedrivelist.h"
+#include "preview.h"
 #include "theme.h"
 #include "transfer.h"
 #include "translator.h"
@@ -40,6 +42,8 @@ int main(int argc, char *argv[]) {
     Account account;
     OneDriveList oneDrive(&account);
     Transfer transfer;
+    Mirror mirror;
+    Preview preview;
     account.restore();
 
     QQmlApplicationEngine engine;
@@ -52,6 +56,8 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("account", &account);
     engine.rootContext()->setContextProperty("oneDrive", &oneDrive);
     engine.rootContext()->setContextProperty("transfer", &transfer);
+    engine.rootContext()->setContextProperty("mirror", &mirror);
+    engine.rootContext()->setContextProperty("preview", &preview);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
