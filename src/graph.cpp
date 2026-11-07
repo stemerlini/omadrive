@@ -1,7 +1,9 @@
 #include "graph.h"
 
 #include <QCoreApplication>
-#include <QEventLoop>
+#include <QSemaphore>
+#include <atomic>
+#include <memory>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -48,6 +50,40 @@ void forgetToken() {
     QStringList args = {"clear"};
     args += kKeyAttributes;
     keyring(args, {}, nullptr);
+}
+
+// One network thread and manager for the whole app, so HTTP connections stay
+// open between requests instead of paying a new TLS handshake each time.
+struct Io {
+    QThread thread;
+    QObject *context = nullptr;
+    QNetworkAccessManager *manager = nullptr;
+    std::atomic<bool> alive{true};
+
+    Io() {
+        context = new QObject;
+        context->moveToThread(&thread);
+        thread.start();
+        QMetaObject::invokeMethod(context, [this] { manager = new QNetworkAccessManager(context); },
+                                  Qt::BlockingQueuedConnection);
+        QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, [this] { shutdown(); });
+    }
+
+    void shutdown() {
+        if (!alive.exchange(false))
+            return;
+        QMetaObject::invokeMethod(context, [this] { delete manager; manager = nullptr; }, Qt::BlockingQueuedConnection);
+        thread.quit();
+        thread.wait();
+        delete context;
+    }
+
+    ~Io() { shutdown(); }
+};
+
+Io &ioThread() {
+    static Io io;
+    return io;
 }
 
 QString apiError(const GraphReply &reply) {
@@ -118,28 +154,37 @@ QString Graph::parentPath(const QString &path) {
 GraphReply Graph::send(const QByteArray &verb, const QUrl &url, const QByteArray &body,
                        const QList<QPair<QByteArray, QByteArray>> &headers, int timeoutMs) {
     GraphReply out;
+    Io &io = ioThread();
     for (int attempt = 0; attempt < 4; ++attempt) {
-        QNetworkAccessManager manager;
-        QNetworkRequest request(url);
-        request.setTransferTimeout(timeoutMs);
-        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-        for (const auto &header : headers)
-            request.setRawHeader(header.first, header.second);
-
-        QNetworkReply *reply = manager.sendCustomRequest(request, verb, body);
-        QEventLoop loop;
-        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-        loop.exec();
-
-        out.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        out.body = reply->readAll();
-        out.error.clear();
-        if (out.status == 0)
-            out.error = reply->errorString();
-        else if (out.status >= 400)
-            out.error = apiError(out);
-        const int retryAfter = reply->rawHeader("Retry-After").toInt();
-        reply->deleteLater();
+        if (!io.alive) {
+            out.error = tr("The app is closing");
+            return out;
+        }
+        QSemaphore done;
+        int retryAfter = 0;
+        // The request runs on the shared network thread so its connections
+        // (and TLS sessions) are reused; this worker just waits for it.
+        QMetaObject::invokeMethod(io.context, [&] {
+            QNetworkRequest request(url);
+            request.setTransferTimeout(timeoutMs);
+            request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+            for (const auto &header : headers)
+                request.setRawHeader(header.first, header.second);
+            QNetworkReply *reply = io.manager->sendCustomRequest(request, verb, body);
+            QObject::connect(reply, &QNetworkReply::finished, io.context, [&, reply] {
+                out.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                out.body = reply->readAll();
+                out.error.clear();
+                if (out.status == 0)
+                    out.error = reply->errorString();
+                else if (out.status >= 400)
+                    out.error = apiError(out);
+                retryAfter = reply->rawHeader("Retry-After").toInt();
+                reply->deleteLater();
+                done.release();
+            });
+        });
+        done.acquire();
 
         if ((out.status == 429 || out.status == 503) && attempt < 3) {
             QThread::sleep(qBound(1, retryAfter, 30));
@@ -267,36 +312,51 @@ QList<QJsonObject> Graph::children(const QString &path, QString *error) {
 }
 
 bool Graph::download(const QUrl &url, const QString &file, const std::function<void(qint64)> &progress, QString *error) {
-    QFile out(file);
-    if (!out.open(QIODevice::WriteOnly)) {
-        *error = tr("Cannot write %1").arg(file);
+    Io &io = ioThread();
+    if (!io.alive) {
+        *error = tr("The app is closing");
         return false;
     }
+    QSemaphore done;
+    bool ok = false;
+    QString problem;
+    QMetaObject::invokeMethod(io.context, [&] {
+        auto *out = new QFile(file);
+        if (!out->open(QIODevice::WriteOnly)) {
+            problem = tr("Cannot write %1").arg(file);
+            delete out;
+            done.release();
+            return;
+        }
 
-    // The download URL is pre-authorised, so no token is sent to it.
-    QNetworkAccessManager manager;
-    QNetworkRequest request(url);
-    request.setTransferTimeout(60000);
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-    QNetworkReply *reply = manager.get(request);
-    QEventLoop loop;
-    qint64 received = 0;
-    QObject::connect(reply, &QNetworkReply::readyRead, &loop, [&] {
-        const QByteArray data = reply->readAll();
-        out.write(data);
-        received += data.size();
-        progress(received);
+        // The download URL is pre-authorised, so no token is sent to it.
+        QNetworkRequest request(url);
+        request.setTransferTimeout(60000);
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+        QNetworkReply *reply = io.manager->get(request);
+        auto received = std::make_shared<qint64>(0);
+        QObject::connect(reply, &QNetworkReply::readyRead, io.context, [=, &progress] {
+            const QByteArray data = reply->readAll();
+            out->write(data);
+            *received += data.size();
+            progress(*received);
+        });
+        QObject::connect(reply, &QNetworkReply::finished, io.context, [=, &ok, &problem, &done] {
+            out->write(reply->readAll());
+            out->close();
+            delete out;
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            ok = reply->error() == QNetworkReply::NoError && status == 200;
+            if (!ok)
+                problem = reply->error() == QNetworkReply::NoError ? tr("Download failed (HTTP %1)").arg(status)
+                                                                   : reply->errorString();
+            reply->deleteLater();
+            done.release();
+        });
     });
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    out.write(reply->readAll());
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const bool ok = reply->error() == QNetworkReply::NoError && status == 200;
+    done.acquire();
     if (!ok)
-        *error = reply->error() == QNetworkReply::NoError ? tr("Download failed (HTTP %1)").arg(status) : reply->errorString();
-    reply->deleteLater();
-    out.close();
+        *error = problem;
     return ok;
 }
 

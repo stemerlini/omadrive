@@ -47,13 +47,21 @@ private:
         QDateTime modified;
     };
 
-    void load(const QString &path);
+    void navigate(const QString &path);
+    void fetch(const QString &path);
+    void received(const QString &path, const QVector<Entry> &entries, const QString &error);
+    void show(const QString &path, const QVector<Entry> &entries);
+    void prefetch();
     void clear();
+    void setLoading(bool loading);
     void setError(const QString &error);
 
     Account *m_account;
-    QString m_path = "/", m_error;
-    bool m_loading = false;
-    int m_generation = 0;
+    QString m_path = "/", m_target = "/", m_error;
+    bool m_loading = false, m_prefetching = false;
     QVector<Entry> m_entries;
+    // Listings seen so far: a revisited folder shows at once and is then
+    // checked against OneDrive in the background.
+    QHash<QString, QVector<Entry>> m_cache;
+    QStringList m_prefetchQueue;
 };

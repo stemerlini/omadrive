@@ -14,6 +14,7 @@ class Account : public QObject {
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY stateChanged)
     Q_PROPERTY(QString name READ name NOTIFY stateChanged)
     Q_PROPERTY(QString error READ error NOTIFY stateChanged)
+    Q_PROPERTY(bool restoring READ restoring NOTIFY stateChanged)  // reconnecting with the saved sign-in
 
 public:
     explicit Account(QObject *parent = nullptr);
@@ -22,6 +23,7 @@ public:
     bool signedIn() const { return m_state == "signedIn"; }
     QString name() const { return m_name; }
     QString error() const { return m_error; }
+    bool restoring() const { return m_restoring; }
 
     Q_INVOKABLE void signIn();
     Q_INVOKABLE void signOut();
@@ -42,6 +44,7 @@ private:
     void finish(const QString &code);
     void watch(std::function<Outcome()> job);
 
+    bool m_restoring = false;
     QString m_state = "signedOut", m_name, m_error;
     QPointer<QTcpServer> m_server;
     QTimer m_timeout;

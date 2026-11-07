@@ -12,6 +12,8 @@
 
 namespace {
 
+constexpr int kPrefetchFolders = 8;
+
 struct Listing {
     QList<QJsonObject> items;
     QString error;
@@ -21,12 +23,10 @@ struct Listing {
 
 OneDriveList::OneDriveList(Account *account, QObject *parent) : QAbstractListModel(parent), m_account(account) {
     connect(account, &Account::stateChanged, this, [this] {
-        if (m_account->signedIn()) {
-            load("/");
-        } else if (!m_entries.isEmpty() || m_path != "/") {
-            ++m_generation;
+        if (m_account->signedIn())
+            navigate("/");
+        else
             clear();
-        }
     });
 }
 
@@ -54,42 +54,38 @@ QHash<int, QByteArray> OneDriveList::roleNames() const {
 }
 
 void OneDriveList::setPath(const QString &path) {
-    QString clean = "/" + path.split('/', Qt::SkipEmptyParts).join('/');
-    if (clean == m_path && m_error.isEmpty() && !m_entries.isEmpty())
-        return;
-    load(clean);
+    navigate("/" + path.split('/', Qt::SkipEmptyParts).join('/'));
 }
 
 void OneDriveList::up() {
-    if (m_path != "/")
-        load(Graph::parentPath(m_path));
+    if (m_target != "/")
+        navigate(Graph::parentPath(m_target));
 }
 
 void OneDriveList::refresh() {
     if (m_account->signedIn())
-        load(m_path);
+        fetch(m_target);
 }
 
-// The path only changes once the listing arrives, so a folder that cannot be
-// opened leaves the pane where it was.
-void OneDriveList::load(const QString &path) {
-    const int generation = ++m_generation;
-    m_loading = true;
-    emit loadingChanged();
+// A folder seen before appears immediately and is then verified in the
+// background. A new one keeps the pane where it is until it arrives, so a
+// folder that cannot be opened leaves the pane unchanged.
+void OneDriveList::navigate(const QString &path) {
+    m_target = path;
+    setError({});
+    if (m_cache.contains(path))
+        show(path, m_cache.value(path));
+    fetch(path);
+}
+
+void OneDriveList::fetch(const QString &path) {
+    if (path == m_target)
+        setLoading(!m_cache.contains(path));
 
     auto *watcher = new QFutureWatcher<Listing>(this);
-    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, path] {
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, path] {
         const Listing listing = watcher->result();
         watcher->deleteLater();
-        if (generation != m_generation)
-            return;
-        m_loading = false;
-        emit loadingChanged();
-
-        if (!listing.error.isEmpty()) {
-            setError(listing.error);
-            return;
-        }
 
         QVector<Entry> entries;
         for (const QJsonObject &item : listing.items) {
@@ -98,20 +94,13 @@ void OneDriveList::load(const QString &path) {
                             item.value("size").toInteger(),
                             QDateTime::fromString(item.value("lastModifiedDateTime").toString(), Qt::ISODate).toLocalTime()});
         }
+        // Folders first, then names without regard to case.
         std::sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
             if (a.isDir != b.isDir)
                 return a.isDir;
             return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
         });
-
-        const bool moved = path != m_path;
-        m_path = path;
-        setError({});
-        if (moved)
-            emit pathChanged();
-        beginResetModel();
-        m_entries = entries;
-        endResetModel();
+        received(path, entries, listing.error);
     });
     watcher->setFuture(QtConcurrent::run([path] {
         Listing listing;
@@ -120,14 +109,71 @@ void OneDriveList::load(const QString &path) {
     }));
 }
 
-void OneDriveList::clear() {
-    m_loading = false;
-    emit loadingChanged();
-    setError({});
-    const bool moved = m_path != "/";
-    m_path = "/";
-    if (moved)
+void OneDriveList::received(const QString &path, const QVector<Entry> &entries, const QString &error) {
+    if (!m_account->signedIn())
+        return;
+    if (error.isEmpty())
+        m_cache.insert(path, entries);
+
+    if (path == m_target) {
+        setLoading(false);
+        if (!error.isEmpty())
+            setError(error);
+        else
+            show(path, entries);
+    }
+    // Prefetch around the folder being viewed, and keep draining the queue.
+    if (m_prefetching || (error.isEmpty() && path == m_target))
+        prefetch();
+}
+
+void OneDriveList::show(const QString &path, const QVector<Entry> &entries) {
+    if (path != m_path) {
+        m_path = path;
         emit pathChanged();
+    }
+    // An unchanged listing must not reset the view and lose the highlight.
+    const bool same = entries.size() == m_entries.size()
+        && std::equal(entries.begin(), entries.end(), m_entries.begin(), [](const Entry &a, const Entry &b) {
+               return a.path == b.path && a.size == b.size && a.modified == b.modified && a.isDir == b.isDir;
+           });
+    if (same)
+        return;
+    beginResetModel();
+    m_entries = entries;
+    endResetModel();
+}
+
+// Quietly load the folders you are most likely to open next.
+void OneDriveList::prefetch() {
+    if (!m_prefetching) {
+        m_prefetchQueue.clear();
+        for (const Entry &e : std::as_const(m_entries))
+            if (e.isDir && !m_cache.contains(e.path) && m_prefetchQueue.size() < kPrefetchFolders)
+                m_prefetchQueue << e.path;
+    }
+    while (!m_prefetchQueue.isEmpty()) {
+        const QString next = m_prefetchQueue.takeFirst();
+        if (!m_cache.contains(next)) {
+            m_prefetching = true;
+            fetch(next);
+            return;
+        }
+    }
+    m_prefetching = false;
+}
+
+void OneDriveList::clear() {
+    m_cache.clear();
+    m_prefetchQueue.clear();
+    m_prefetching = false;
+    m_target = "/";
+    setLoading(false);
+    setError({});
+    if (m_path != "/") {
+        m_path = "/";
+        emit pathChanged();
+    }
     beginResetModel();
     m_entries.clear();
     endResetModel();
@@ -146,6 +192,13 @@ int OneDriveList::indexOfPath(const QString &path) const {
         if (m_entries.at(i).path == path)
             return i;
     return -1;
+}
+
+void OneDriveList::setLoading(bool loading) {
+    if (loading == m_loading)
+        return;
+    m_loading = loading;
+    emit loadingChanged();
 }
 
 void OneDriveList::setError(const QString &error) {

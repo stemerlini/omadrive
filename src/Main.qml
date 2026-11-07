@@ -47,26 +47,44 @@ ApplicationWindow {
     // transfer.onFinished.
     function crossing() { return activePane.remote !== otherPane.remote }
 
-    function transferItems(removeSource) {
-        var items = activePane.targets()
+    function transferPaths(items, fromRemote, toRemote, destPath, removeSource) {
+        // Dropping onto the same folder, or a folder into itself, does nothing.
+        items = items.filter(function (p) {
+            var parent = p.substring(0, p.lastIndexOf("/")) || "/"
+            return destPath !== p && destPath.indexOf(p + "/") !== 0
+                && !(fromRemote === toRemote && destPath === parent)
+        })
         if (items.length === 0)
             return
-        if (!activePane.remote && !otherPane.remote) {
-            var error = removeSource ? backend.moveItems(items, otherPane.folder.path)
-                                     : backend.copyItems(items, otherPane.folder.path)
+        if (!fromRemote && !toRemote) {
+            var error = removeSource ? backend.moveItems(items, destPath) : backend.copyItems(items, destPath)
             report(error, removeSource ? qsTr("Moved %n items", "", items.length) : qsTr("Copied %n items", "", items.length))
-            activePane.clearMarks()
-            activePane.folder.refresh()
-            otherPane.folder.refresh()
+            leftPane.clearMarks()
+            rightPane.clearMarks()
+            leftFolder.refresh()
+            rightFolder.refresh()
         } else if (!account.signedIn) {
             say(qsTr("Sign in to OneDrive first"), true)
-        } else if (activePane.remote && otherPane.remote) {
+        } else if (fromRemote && toRemote) {
             say(qsTr("Copying inside OneDrive is not supported yet"), true)
-        } else if (activePane.remote) {
-            transfer.download(items, otherPane.folder.path, removeSource)
+        } else if (fromRemote) {
+            transfer.download(items, destPath, removeSource)
         } else {
-            transfer.upload(items, otherPane.folder.path, removeSource)
+            transfer.upload(items, destPath, removeSource)
         }
+    }
+
+    function transferItems(removeSource) {
+        transferPaths(activePane.targets(), activePane.remote, otherPane.remote, otherPane.folder.path, removeSource)
+    }
+
+    function paneAction(action) {
+        if (action === "open") activePane.openCurrent()
+        else if (action === "copy") copy()
+        else if (action === "move") move()
+        else if (action === "rename") askRename()
+        else if (action === "mkdir") askNewFolder()
+        else if (action === "trash") askTrash()
     }
 
     function copy() { transferItems(false) }
@@ -172,6 +190,7 @@ ApplicationWindow {
         }
     }
 
+    Shortcut { sequence: "Ctrl+A"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.markAll() }
     Shortcut { sequence: "Ctrl+O"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.toggleRight() }
     Shortcut { sequence: "Ctrl+Shift+L"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: account.signOut() }
 
@@ -203,6 +222,8 @@ ApplicationWindow {
                     active: win.leftActive
                     onFocusRequested: { win.leftActive = true; focusList() }
                     onNotice: text => win.say(text, false)
+                    onMenuAction: action => win.paneAction(action)
+                    onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
                 }
 
                 FolderPane {
@@ -215,16 +236,38 @@ ApplicationWindow {
                     active: !win.leftActive
                     onFocusRequested: { win.leftActive = false; focusList() }
                     onNotice: text => win.say(text, false)
+                    onMenuAction: action => win.paneAction(action)
+                    onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
                 }
             }
 
-            Label {
+            RowLayout {
                 Layout.fillWidth: true
-                elide: Text.ElideRight
-                text: win.message !== "" ? win.message
-                    : transfer.busy ? (transfer.progress !== "" ? transfer.progress : qsTr("Working with OneDrive…"))
-                    : qsTr("Tab switch pane   Space mark   F5 copy   F6 move   F7 new folder   F2 rename   F8 trash   ? help")
-                color: win.message === "" ? "#9a9aa0" : win.messageIsError ? "#f7768e" : theme.accent
+                spacing: 4
+                Repeater {
+                    model: [
+                        ["F5", qsTr("Copy"), "copy"], ["F6", qsTr("Move"), "move"],
+                        ["F7", qsTr("New folder"), "mkdir"], ["F2", qsTr("Rename"), "rename"],
+                        ["F8", qsTr("Trash"), "trash"]
+                    ]
+                    delegate: Button {
+                        required property var modelData
+                        flat: true
+                        text: modelData[0] + "  " + modelData[1]
+                        focusPolicy: Qt.NoFocus
+                        onClicked: win.paneAction(modelData[2])
+                    }
+                }
+                Button { flat: true; text: "?"; focusPolicy: Qt.NoFocus; onClicked: help.open() }
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 8
+                    elide: Text.ElideRight
+                    text: win.message !== "" ? win.message
+                        : transfer.busy ? (transfer.progress !== "" ? transfer.progress : qsTr("Working with OneDrive…"))
+                        : qsTr("Drag files between panes · Shift while dropping moves")
+                    color: win.message === "" ? "#9a9aa0" : win.messageIsError ? "#f7768e" : theme.accent
+                }
             }
         }
     }
@@ -283,6 +326,11 @@ ApplicationWindow {
                     ["Enter / →", qsTr("Open folder or file")],
                     ["Backspace / ←", qsTr("Parent folder")],
                     ["Space", qsTr("Mark or unmark")],
+                    ["Ctrl+A", qsTr("Mark all")],
+                    ["Click / Ctrl / Shift+click", qsTr("Select, toggle mark, mark range")],
+                    ["Double-click", qsTr("Open")],
+                    ["Right-click", qsTr("Context menu")],
+                    ["Drag and drop", qsTr("Copy; hold Shift to move")],
                     ["F5", qsTr("Copy to the other pane")],
                     ["F6", qsTr("Move to the other pane")],
                     ["F7", qsTr("New folder")],
@@ -296,7 +344,7 @@ ApplicationWindow {
                 delegate: Row {
                     required property var modelData
                     spacing: 24
-                    Label { width: 130; text: parent.modelData[0]; color: theme.accent; font.bold: true }
+                    Label { width: 190; text: parent.modelData[0]; color: theme.accent; font.bold: true }
                     Label { text: parent.modelData[1] }
                 }
             }

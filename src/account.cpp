@@ -49,6 +49,7 @@ void Account::watch(std::function<Outcome()> job) {
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
         const Outcome outcome = watcher->result();
         watcher->deleteLater();
+        m_restoring = false;
         if (outcome.ok) {
             m_name = outcome.name;
             setState("signedIn");
@@ -62,6 +63,7 @@ void Account::watch(std::function<Outcome()> job) {
 void Account::restore() {
     if (!Graph::instance().configured())
         return;
+    m_restoring = true;
     setState("signingIn");
     watch([] {
         Outcome outcome;
