@@ -16,7 +16,7 @@ Rectangle {
     // OneDrive tabs: paths are OneDrive paths and need a sign-in.
     readonly property bool remote: tab.remote
     property bool active: false
-    // Whether a second pane is open for F5/F6.
+    // Whether a second pane is open for Alt+C/Alt+M.
     property bool paired: false
     property bool canPaste: false
     property bool showTree: true
