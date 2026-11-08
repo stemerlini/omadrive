@@ -21,6 +21,7 @@ RowLayout {
     signal newTab(bool remote)
     signal splitToggled()
     signal dropped(var drop, int index)
+    signal helpRequested()
 
     spacing: 4
 
@@ -146,10 +147,21 @@ RowLayout {
         implicitWidth: 34
         implicitHeight: 34
         focusPolicy: Qt.NoFocus
-        ToolTip.text: strip.split ? qsTr("One pane (F3)") : qsTr("Two panes (F3)")
+        ToolTip.text: strip.split ? qsTr("One pane (Ctrl+\\)") : qsTr("Two panes (Ctrl+\\)")
         ToolTip.visible: hovered
         ToolTip.delay: 500
         onClicked: strip.splitToggled()
+    }
+
+    ToolButton {
+        text: "?"
+        implicitWidth: 34
+        implicitHeight: 34
+        focusPolicy: Qt.NoFocus
+        ToolTip.text: qsTr("Keyboard shortcuts (?)")
+        ToolTip.visible: hovered
+        ToolTip.delay: 500
+        onClicked: strip.helpRequested()
     }
 
     ToolButton {

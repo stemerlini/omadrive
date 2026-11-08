@@ -34,11 +34,14 @@ public:
     Q_INVOKABLE QString pathAt(int row) const;
     Q_INVOKABLE bool isDirAt(int row) const;
     Q_INVOKABLE int indexOfPath(const QString &path) const;
+    // Subfolder names of any folder, for the column tree.
+    Q_INVOKABLE QStringList foldersIn(const QString &path) const;
 
 signals:
     void pathChanged();
     void errorChanged();
     void showHiddenChanged();
+    void foldersChanged();
 
 private:
     struct Entry {

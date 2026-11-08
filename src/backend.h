@@ -20,6 +20,9 @@ public:
     Q_INVOKABLE QString homePath() const;
     Q_INVOKABLE bool isDir(const QString &path) const;
     Q_INVOKABLE void openExternally(const QString &path);
+    // Starts another Omadrive window with fresh tabs.
+    Q_INVOKABLE void newWindow();
+    Q_INVOKABLE void copyText(const QString &text);
 
     static QString uniquePath(const QString &directory, const QString &name);
 

@@ -1,5 +1,9 @@
 #include "backend.h"
 
+#include <QClipboard>
+#include <QCoreApplication>
+#include <QGuiApplication>
+#include <QProcess>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -151,4 +155,12 @@ QString Backend::homePath() const {
 
 void Backend::openExternally(const QString &path) {
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+void Backend::newWindow() {
+    QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--new-window"});
+}
+
+void Backend::copyText(const QString &text) {
+    QGuiApplication::clipboard()->setText(text);
 }

@@ -56,6 +56,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("transfer", &transfer);
     engine.rootContext()->setContextProperty("mirror", &mirror);
     engine.rootContext()->setContextProperty("preview", &preview);
+    engine.rootContext()->setContextProperty("freshStart", app.arguments().contains("--new-window"));
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

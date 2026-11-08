@@ -27,6 +27,7 @@ ApplicationWindow {
     property bool split: false
     property bool leftActive: true
     property bool showHidden: false
+    property bool showTree: true
     readonly property var activePane: leftActive || !split ? leftPane : rightPane
     readonly property var otherPane: activePane === leftPane ? rightPane : leftPane
     readonly property int activeTab: activePane === leftPane ? leftTab : rightTab
@@ -48,16 +49,16 @@ ApplicationWindow {
             say(error, true)
     }
 
-    Component { id: localTabType; QtObject { readonly property bool remote: false; property string selected: ""; readonly property FolderList folder: FolderList {} } }
-    Component { id: cloudTabType; QtObject { readonly property bool remote: true; property string selected: ""; readonly property OneDriveList folder: OneDriveList {} } }
+    Component { id: localListType; FolderList {} }
+    Component { id: cloudListType; OneDriveList {} }
+    Component { id: tabType; TabState {} }
 
     function makeTab(remote, path, selected) {
-        var tab = (remote ? cloudTabType : localTabType).createObject(win)
+        var folder = (remote ? cloudListType : localListType).createObject(win)
         if (!remote)
-            tab.folder.showHidden = showHidden
-        tab.folder.path = path || (remote ? "/" : backend.homePath())
-        tab.selected = selected || ""
-        return tab
+            folder.showHidden = showHidden
+        folder.path = path || (remote ? "/" : backend.homePath())
+        return tabType.createObject(win, { remote: remote, folder: folder, selected: selected || "" })
     }
 
     function tabLabel(tab) {
@@ -161,6 +162,7 @@ ApplicationWindow {
         tabs = tabs.slice(0, index).concat(tabs.slice(index + 1))
         leftTab = left
         rightTab = right
+        tab.folder.destroy()
         tab.destroy()
         activePane.focusList()
     }
@@ -232,12 +234,16 @@ ApplicationWindow {
         settings.split = split
         settings.leftActive = leftActive
         settings.showHidden = showHidden
+        settings.showTree = showTree
     }
 
     function restoreTabs() {
         showHidden = settings.showHidden
+        showTree = settings.showTree
         var saved = []
-        try { saved = JSON.parse(settings.tabs) } catch (e) {}
+        // Ctrl+N opens a window with just the starting tabs.
+        if (!freshStart)
+            try { saved = JSON.parse(settings.tabs) } catch (e) {}
         var list = []
         saved.forEach(function (t) {
             if (t.remote || backend.isDir(t.path))
@@ -265,6 +271,7 @@ ApplicationWindow {
         property bool split: false
         property bool leftActive: true
         property bool showHidden: false
+        property bool showTree: true
     }
 
     Component.onCompleted: {
@@ -300,7 +307,7 @@ ApplicationWindow {
     }
 
     function transferItems(removeSource) {
-        // F5/F6 out of OneDrive keep the cloud layout: they land in the mirror.
+        // Alt+C/Alt+M out of OneDrive keep the cloud layout: they land in the mirror.
         if (activePane.remote && (!split || !otherPane.remote)) {
             var items = activePane.targets()
             if (items.length === 0)
@@ -313,7 +320,7 @@ ApplicationWindow {
         }
         if (!split) {
             toggleSplit()
-            say(qsTr("Choose where to copy in the second pane, then press F5 or F6 again"), false)
+            say(qsTr("Choose the destination in the second pane, then press Alt+C or Alt+M again"), false)
             return
         }
         transferPaths(activePane.targets(), activePane.remote, otherPane.remote, otherPane.folder.path, removeSource)
@@ -326,6 +333,14 @@ ApplicationWindow {
         clip = { paths: items, remote: activePane.remote, move: move }
         say(move ? qsTr("Cut %n items; paste with Ctrl+V", "", items.length)
                  : qsTr("Copied %n items; paste with Ctrl+V", "", items.length), false)
+    }
+
+    function copyPaths() {
+        var items = activePane.targets()
+        if (items.length === 0)
+            items = [activePane.folder.path]
+        backend.copyText(items.join("\n"))
+        say(qsTr("Copied %n paths", "", items.length), false)
     }
 
     function paste() {
@@ -371,6 +386,7 @@ ApplicationWindow {
         else if (action === "clipCopy") clipboardPut(false)
         else if (action === "clipCut") clipboardPut(true)
         else if (action === "paste") paste()
+        else if (action === "copyPath") copyPaths()
     }
 
     // A OneDrive file opens from the mirror, downloading it first if needed.
@@ -458,21 +474,30 @@ ApplicationWindow {
     }
 
     // Plain-letter shortcuts must not fire while a dialog takes text.
-    readonly property bool typing: prompt.visible
+    readonly property bool typing: prompt.visible || leftPane.editingPath || rightPane.editingPath
 
-    Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: help.visible ? help.close() : help.open() }
-    Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.close() }
+    // Keys follow Windows and One Commander.
+    Shortcut { sequences: ["?", "Ctrl+/"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: help.visible ? help.close() : help.open() }
+    Shortcut { sequence: "Ctrl+Q"; context: Qt.ApplicationShortcut; onActivated: win.close() }
+    Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; onActivated: backend.newWindow() }
     Shortcut { sequence: "Tab"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.switchPane() }
+    Shortcut { sequence: "Alt+F"; context: Qt.ApplicationShortcut; enabled: !win.typing && win.split; onActivated: win.switchPane() }
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.togglePreview() }
     Shortcut { sequences: ["Ins", "Ctrl+Space"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.toggleMark() }
-    Shortcut { sequence: "Esc"; context: Qt.ApplicationShortcut; enabled: previewPopup.visible && !win.typing; onActivated: previewPopup.close() }
+    Shortcut { sequence: "Esc"; context: Qt.ApplicationShortcut; enabled: !win.typing && (previewPopup.visible || win.activePane.markedCount > 0); onActivated: previewPopup.visible ? previewPopup.close() : win.activePane.clearMarks() }
     Shortcut { sequences: ["Return", "Enter", "Right"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.openCurrent() }
-    Shortcut { sequences: ["Backspace", "Left"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.goUp() }
-    Shortcut { sequence: "F5"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.copy() }
-    Shortcut { sequence: "F6"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.move() }
-    Shortcut { sequence: "F7"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askNewFolder() }
+    Shortcut { sequences: ["Backspace", "Left", "Alt+Up"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.goUp() }
+    Shortcut { sequence: "Alt+Left"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.tab.goBack() }
+    Shortcut { sequence: "Alt+Right"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.tab.goForward() }
+    Shortcut { sequences: ["Ctrl+L", "Alt+D"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.editPath() }
+    Shortcut { sequence: "Alt+C"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.copy() }
+    Shortcut { sequence: "Alt+M"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.move() }
+    Shortcut { sequence: "Ctrl+Shift+N"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askNewFolder() }
     Shortcut { sequence: "F2"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askRename() }
-    Shortcut { sequences: ["F8", "Delete"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askTrash() }
+    Shortcut { sequence: "Delete"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askTrash() }
+    Shortcut { sequences: ["Ctrl+R", "F5"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.folder.refresh() }
+    Shortcut { sequences: ["`", "Ctrl+B"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.showTree = !win.showTree }
+    Shortcut { sequence: "Ctrl+Shift+C"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.copyPaths() }
     Shortcut {
         sequence: "Ctrl+H"
         context: Qt.ApplicationShortcut
@@ -509,12 +534,11 @@ ApplicationWindow {
     }
 
     Shortcut { sequence: "Ctrl+A"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.markAll() }
-    Shortcut { sequences: ["F3", "Ctrl+\\"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.toggleSplit() }
+    Shortcut { sequence: "Ctrl+\\"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.toggleSplit() }
     Shortcut { sequence: "Ctrl+T"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.duplicateTab() }
     Shortcut { sequence: "Ctrl+W"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.closeTab(win.activeTab) }
     Shortcut { sequences: ["Ctrl+Tab", "Ctrl+PgDown"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.cycleTab(1) }
     Shortcut { sequences: ["Ctrl+Shift+Tab", "Ctrl+Backtab", "Ctrl+PgUp"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.cycleTab(-1) }
-    Shortcut { sequence: "Ctrl+L"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.toggleLocalCloud() }
     Shortcut { sequence: "Ctrl+C"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.clipboardPut(false) }
     Shortcut { sequence: "Ctrl+X"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.clipboardPut(true) }
     Shortcut { sequence: "Ctrl+V"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.paste() }
@@ -553,6 +577,7 @@ ApplicationWindow {
                 onCloseRequested: index => win.closeTab(index)
                 onNewTab: remote => win.newTab(remote, "")
                 onSplitToggled: win.toggleSplit()
+                onHelpRequested: help.open()
                 onDropped: (drop, index) => win.dropOnTab(drop, win.tabs[index])
             }
 
@@ -574,6 +599,9 @@ ApplicationWindow {
                     onMenuAction: action => win.paneAction(action)
                     onOpenRemote: (path, cloud) => win.openRemote(path, cloud)
                     onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
+                    showTree: win.showTree
+                    onTreeToggled: win.showTree = !win.showTree
+                    onOpenInNewTab: path => win.newTab(remote, path)
                 }
 
                 FolderPane {
@@ -590,47 +618,45 @@ ApplicationWindow {
                     onMenuAction: action => win.paneAction(action)
                     onOpenRemote: (path, cloud) => win.openRemote(path, cloud)
                     onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
+                    showTree: win.showTree
+                    onTreeToggled: win.showTree = !win.showTree
+                    onOpenInNewTab: path => win.newTab(remote, path)
                 }
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 4
-                Repeater {
-                    model: [
-                        ["F5", qsTr("Copy"), "copy"], ["F6", qsTr("Move"), "move"],
-                        ["F7", qsTr("New folder"), "mkdir"], ["F2", qsTr("Rename"), "rename"],
-                        ["F8", qsTr("Trash"), "trash"]
-                    ]
-                    delegate: Button {
-                        required property var modelData
-                        flat: true
-                        text: modelData[0] + "  " + modelData[1]
-                        focusPolicy: Qt.NoFocus
-                        onClicked: win.paneAction(modelData[2])
-                    }
-                }
-                Button { flat: true; text: "?"; focusPolicy: Qt.NoFocus; onClicked: help.open() }
-                Label {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 8
-                    elide: Text.ElideRight
-                    text: win.message !== "" ? win.message
-                        : transfer.busy ? (transfer.progress !== "" ? transfer.progress : qsTr("Working with OneDrive…"))
-                        : win.split ? qsTr("Tab switches pane · F3 one pane · drag to copy, Shift moves")
-                        : qsTr("Tab local ⇄ OneDrive · F3 two panes · Space preview")
-                    color: win.message === "" ? "#9a9aa0" : win.messageIsError ? "#f7768e" : theme.accent
-                }
-            }
         }
     }
 
+    // Messages and OneDrive progress float over the bottom of the window
+    // instead of taking a row of their own.
+    Rectangle {
+        id: toast
+        readonly property string text: win.message !== "" ? win.message
+            : transfer.busy ? (transfer.progress !== "" ? transfer.progress : qsTr("Working with OneDrive…")) : ""
+        visible: text !== ""
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 34
+        width: Math.min(toastLabel.implicitWidth + 32, win.width - 80)
+        height: toastLabel.implicitHeight + 16
+        radius: theme.radius
+        color: "#1c1c20"
+        border.color: win.messageIsError && win.message !== "" ? "#f7768e" : theme.accent
+        Label {
+            id: toastLabel
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width - 32)
+            elide: Text.ElideRight
+            text: toast.text
+            color: win.messageIsError && win.message !== "" ? "#f7768e" : "#e6e6e6"
+        }
+        TapHandler { onTapped: win.message = "" }
+    }
+
     // Shown by the panes for the moment before the saved tabs are restored.
-    QtObject {
+    TabState {
         id: placeholder
-        readonly property bool remote: false
-        property string selected: ""
-        readonly property FolderList folder: FolderList {}
+        folder: FolderList {}
     }
 
     PreviewPopup {
@@ -693,30 +719,33 @@ ApplicationWindow {
             Repeater {
                 model: [
                     ["Tab", qsTr("Local ⇄ OneDrive (with two panes: switch pane)")],
-                    ["F3 / Ctrl+\\", qsTr("One or two panes")],
-                    ["Ctrl+L", qsTr("This pane: local ⇄ OneDrive")],
-                    ["Ctrl+1…9", qsTr("Go to tab")],
-                    ["Ctrl+Tab / Ctrl+Shift+Tab", qsTr("Next or previous tab")],
+                    ["Ctrl+\\", qsTr("One or two panes")],
+                    ["Alt+F", qsTr("Switch pane")],
                     ["Ctrl+T / Ctrl+W", qsTr("New tab here / close tab")],
-                    ["Ctrl+C / Ctrl+X / Ctrl+V", qsTr("Copy, cut, paste across tabs")],
-                    ["↑ ↓", qsTr("Move")],
+                    ["Ctrl+Tab / Ctrl+Shift+Tab", qsTr("Next or previous tab")],
+                    ["Ctrl+1…9", qsTr("Go to tab")],
+                    ["Middle-click", qsTr("Folder: open in new tab; tab: close")],
+                    ["Ctrl+N", qsTr("New window")],
+                    ["` / Ctrl+B", qsTr("Show or hide folder columns")],
                     ["Enter / →", qsTr("Open folder or file")],
-                    ["Backspace / ←", qsTr("Parent folder")],
+                    ["Backspace / Alt+↑", qsTr("Parent folder")],
+                    ["Alt+← / Alt+→", qsTr("Back / forward")],
+                    ["Ctrl+L / Alt+D", qsTr("Type a path")],
                     ["Space", qsTr("Preview")],
-                    ["Ins / Ctrl+Space", qsTr("Mark or unmark")],
-                    ["Ctrl+A", qsTr("Mark all")],
-                    ["Click / Ctrl / Shift+click", qsTr("Select, toggle mark, mark range")],
-                    ["Double-click", qsTr("Open")],
-                    ["Right-click", qsTr("Context menu")],
-                    ["Drag and drop", qsTr("Copy onto a pane, folder or tab; hold Shift to move")],
-                    ["F5", qsTr("Copy to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
-                    ["F6", qsTr("Move to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
-                    ["F7", qsTr("New folder")],
+                    ["Ctrl+Space / Ins", qsTr("Mark or unmark")],
+                    ["Ctrl+A", qsTr("Select all")],
+                    ["Ctrl+C / X / V", qsTr("Copy, cut, paste (across tabs too)")],
+                    ["Ctrl+Shift+C", qsTr("Copy path")],
+                    ["Alt+C", qsTr("Copy to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
+                    ["Alt+M", qsTr("Move to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
+                    ["Drag and drop", qsTr("Copy onto a pane, folder or tab; Shift moves")],
+                    ["Ctrl+Shift+N", qsTr("New folder")],
                     ["F2", qsTr("Rename")],
-                    ["F8 / Delete", qsTr("Move to the trash")],
+                    ["Delete", qsTr("Move to the trash")],
+                    ["Ctrl+R / F5", qsTr("Refresh")],
                     ["Ctrl+H", qsTr("Show hidden files")],
                     ["Ctrl+Shift+L", qsTr("Sign out of OneDrive")],
-                    ["Q", qsTr("Quit")]
+                    ["Ctrl+Q", qsTr("Quit")]
                 ]
                 delegate: Row {
                     required property var modelData

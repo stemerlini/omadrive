@@ -2,6 +2,8 @@
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
         <file alias="FolderPane.qml">FolderPane.qml</file>
+        <file alias="TabState.qml">TabState.qml</file>
+        <file alias="FolderTree.qml">FolderTree.qml</file>
         <file alias="TabStrip.qml">TabStrip.qml</file>
         <file alias="PreviewPopup.qml">PreviewPopup.qml</file>
         <file alias="PdfView.qml">PdfView.qml</file>
@@ -10,6 +12,7 @@
         <file alias="icons/changed.svg">icons/changed.svg</file>
         <file alias="icons/tab-cloud.svg">icons/tab-cloud.svg</file>
         <file alias="icons/tab-device.svg">icons/tab-device.svg</file>
+        <file alias="icons/tree.svg">icons/tree.svg</file>
         <file alias="icons/split.svg">icons/split.svg</file>
         <file alias="icons/single.svg">icons/single.svg</file>
         <file alias="i18n/en.json">i18n/en.json</file>

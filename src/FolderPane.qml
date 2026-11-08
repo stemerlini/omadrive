@@ -19,6 +19,9 @@ Rectangle {
     // Whether a second pane is open for F5/F6.
     property bool paired: false
     property bool canPaste: false
+    property bool showTree: true
+    // The path bar turns into a text field (Ctrl+L).
+    property bool editingPath: false
     property var marked: ({})
     readonly property int markedCount: Object.keys(marked).length
     property string lastPath: ""
@@ -35,6 +38,8 @@ Rectangle {
     signal menuAction(string action)
     signal openRemote(string path, string cloud)
     signal itemsDropped(var paths, bool fromRemote, string destPath, bool move)
+    signal openInNewTab(string path)
+    signal treeToggled()
 
     color: "#131316"
     radius: theme.radius
@@ -142,9 +147,35 @@ Rectangle {
     }
 
     function goTo(count) {
+        openFolder("/" + segments.slice(0, count).join("/"))
+    }
+
+    function openFolder(path) {
         lastPath = ""
         lastIndex = 0
-        folder.path = "/" + segments.slice(0, count).join("/")
+        folder.path = path
+        focusList()
+    }
+
+    function editPath() {
+        editingPath = true
+        pathField.text = remote ? folder.path : folder.path
+        pathField.forceActiveFocus()
+        pathField.selectAll()
+    }
+
+    function finishEdit(accept) {
+        var text = pathField.text.trim()
+        editingPath = false
+        if (accept && text !== "") {
+            if (!remote && text.indexOf("~") === 0)
+                text = backend.homePath() + text.substring(1)
+            if (!remote && !backend.isDir(text))
+                notice(qsTr("No such folder: %1").arg(text))
+            else
+                openFolder(text)
+        }
+        focusList()
     }
 
     function handleDrop(drop, destPath) {
@@ -187,7 +218,13 @@ Rectangle {
     Menu {
         id: menu
         MenuItem { text: qsTr("Open"); onTriggered: pane.menuAction("open") }
-        MenuItem { text: qsTr("Preview"); onTriggered: pane.menuAction("preview") }
+        MenuItem {
+            text: qsTr("Open in new tab")
+            visible: pane.folder.isDirAt(list.currentIndex)
+            height: visible ? implicitHeight : 0
+            onTriggered: pane.openInNewTab(pane.currentPath())
+        }
+        MenuItem { text: qsTr("Preview\tSpace"); onTriggered: pane.menuAction("preview") }
         MenuItem {
             text: qsTr("Download to %1").arg(mirror.root.replace(backend.homePath(), "~"))
             visible: pane.remote
@@ -195,25 +232,26 @@ Rectangle {
             onTriggered: pane.menuAction("mirror")
         }
         MenuSeparator {}
-        MenuItem { text: qsTr("Copy"); onTriggered: pane.menuAction("clipCopy") }
-        MenuItem { text: qsTr("Cut"); onTriggered: pane.menuAction("clipCut") }
-        MenuItem { text: qsTr("Paste"); enabled: pane.canPaste; onTriggered: pane.menuAction("paste") }
+        MenuItem { text: qsTr("Copy\tCtrl+C"); onTriggered: pane.menuAction("clipCopy") }
+        MenuItem { text: qsTr("Cut\tCtrl+X"); onTriggered: pane.menuAction("clipCut") }
+        MenuItem { text: qsTr("Paste\tCtrl+V"); enabled: pane.canPaste; onTriggered: pane.menuAction("paste") }
+        MenuItem { text: qsTr("Copy path\tCtrl+Shift+C"); onTriggered: pane.menuAction("copyPath") }
         MenuItem {
-            text: qsTr("Copy to the other pane")
+            text: qsTr("Copy to the other pane\tAlt+C")
             visible: pane.paired
             height: visible ? implicitHeight : 0
             onTriggered: pane.menuAction("copy")
         }
         MenuItem {
-            text: qsTr("Move to the other pane")
+            text: qsTr("Move to the other pane\tAlt+M")
             visible: pane.paired
             height: visible ? implicitHeight : 0
             onTriggered: pane.menuAction("move")
         }
         MenuSeparator {}
-        MenuItem { text: qsTr("Rename"); onTriggered: pane.menuAction("rename") }
-        MenuItem { text: qsTr("New folder"); onTriggered: pane.menuAction("mkdir") }
-        MenuItem { text: qsTr("Move to the trash"); onTriggered: pane.menuAction("trash") }
+        MenuItem { text: qsTr("Rename\tF2"); onTriggered: pane.menuAction("rename") }
+        MenuItem { text: qsTr("New folder\tCtrl+Shift+N"); onTriggered: pane.menuAction("mkdir") }
+        MenuItem { text: qsTr("Move to the trash\tDelete"); onTriggered: pane.menuAction("trash") }
     }
 
     ColumnLayout {
@@ -225,8 +263,25 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 2
 
+            ToolButton { text: "←"; implicitWidth: 30; implicitHeight: 34; focusPolicy: Qt.NoFocus; enabled: pane.tab.back.length > 0; ToolTip.text: qsTr("Back (Alt+Left)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.tab.goBack() } }
+            ToolButton { text: "→"; implicitWidth: 30; implicitHeight: 34; focusPolicy: Qt.NoFocus; enabled: pane.tab.forward.length > 0; ToolTip.text: qsTr("Forward (Alt+Right)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.tab.goForward() } }
+            ToolButton { text: "↑"; implicitWidth: 30; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Parent folder (Alt+Up)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.goUp() } }
+
+            TextField {
+                id: pathField
+                Layout.fillWidth: true
+                visible: pane.editingPath
+                implicitHeight: 34
+                topPadding: 4
+                bottomPadding: 4
+                onAccepted: pane.finishEdit(true)
+                Keys.onEscapePressed: pane.finishEdit(false)
+                onActiveFocusChanged: if (!activeFocus && pane.editingPath) pane.editingPath = false
+            }
+
             Flickable {
                 id: crumbs
+                visible: !pane.editingPath
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
                 implicitHeight: crumbRow.implicitHeight
@@ -260,11 +315,23 @@ Rectangle {
                         }
                     }
                 }
+                // A click beside the path edits it, like an address bar.
+                TapHandler {
+                    enabled: crumbRow.width < crumbs.width
+                    onTapped: eventPoint => { if (eventPoint.position.x > crumbRow.width) { pane.focusRequested(); pane.editPath() } }
+                }
             }
 
-            ToolButton { text: "↑"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Parent folder"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.goUp() } }
-            ToolButton { text: "↻"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Refresh"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.folder.refresh() } }
-            ToolButton { text: "+"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("New folder"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.menuAction("mkdir") } }
+            ToolButton {
+                implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus
+                icon.source: "qrc:/icons/tree.svg"; icon.width: 18; icon.height: 18
+                icon.color: pane.showTree ? theme.accent : "#c0c0c6"
+                ToolTip.text: pane.showTree ? qsTr("Hide folder columns (`)") : qsTr("Show folder columns (`)")
+                ToolTip.visible: hovered; ToolTip.delay: 500
+                onClicked: pane.treeToggled()
+            }
+            ToolButton { text: "↻"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Refresh (Ctrl+R)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.folder.refresh() } }
+            ToolButton { text: "+"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("New folder (Ctrl+Shift+N)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.menuAction("mkdir") } }
         }
 
         Label {
@@ -275,10 +342,28 @@ Rectangle {
             wrapMode: Text.Wrap
         }
 
-        ListView {
-            id: list
+        SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            orientation: Qt.Vertical
+            handle: Rectangle {
+                implicitHeight: 6
+                color: SplitHandle.hovered || SplitHandle.pressed ? Qt.alpha(theme.accent, 0.5) : "transparent"
+            }
+
+        FolderTree {
+            visible: pane.showTree && !pane.needsSignIn
+            SplitView.preferredHeight: 170
+            SplitView.minimumHeight: 80
+            folder: pane.folder
+            remote: pane.remote
+            onOpened: path => { pane.focusRequested(); pane.openFolder(path) }
+            onOpenedInNewTab: path => pane.openInNewTab(path)
+        }
+
+        ListView {
+            id: list
+            SplitView.fillHeight: true
             clip: true
             model: pane.folder
             keyNavigationEnabled: true
@@ -384,10 +469,13 @@ Rectangle {
                 }
 
                 TapHandler {
-                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                     onTapped: (eventPoint, button) => {
                         pane.focusRequested()
-                        if (button === Qt.RightButton) {
+                        if (button === Qt.MiddleButton) {
+                            if (row.isDir)
+                                pane.openInNewTab(row.path)
+                        } else if (button === Qt.RightButton) {
                             if (!pane.marked[row.path])
                                 pane.select(row.index, 0)
                             menu.popup()
@@ -417,6 +505,8 @@ Rectangle {
                     onDropped: drop => pane.handleDrop(drop, row.path)
                 }
             }
+        }
+
         }
 
         Label {
