@@ -134,6 +134,18 @@ const tools = [
       return runAgent(withAccount(args, a.account));
     },
   },
+  {
+    name: "onedrive_sync_status",
+    description: "Sync state of an item in a mounted OneDrive folder (omadrive mount): cloud (online only), local (on this device and up to date), pending (waiting to upload) or conflict, with size, modified time and eTag. Path is from the drive root or a path inside the mounted folder.",
+    inputSchema: { type: "object", properties: { path: { type: "string", description: "Item path." }, ...accountProp }, required: ["path"] },
+    run: (a) => runAgent(withAccount(["status", a.path], a.account)),
+  },
+  {
+    name: "onedrive_pending",
+    description: "List what each mounted OneDrive folder still has to upload and its conflicts, with the last sync time and error.",
+    inputSchema: { type: "object", properties: { ...accountProp } },
+    run: (a) => runAgent(withAccount(["pending"], a.account)),
+  },
 ];
 
 const toolByName = new Map(tools.map((t) => [t.name, t]));
