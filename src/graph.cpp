@@ -428,14 +428,15 @@ QByteArray Graph::photo() {
 }
 
 GraphReply Graph::call(const QByteArray &verb, const QString &urlOrPath, const QByteArray &body,
-                       const QByteArray &contentType) {
+                       const QByteArray &contentType, const QList<QPair<QByteArray, QByteArray>> &extra) {
     GraphReply out;
     const QString token = accessToken(&out.error);
     if (token.isEmpty())
         return out;
     QList<QPair<QByteArray, QByteArray>> headers = {{"Authorization", "Bearer " + token.toUtf8()}};
-    if (!body.isEmpty())
+    if (!body.isEmpty() || verb == "PUT")
         headers.append({"Content-Type", contentType});
+    headers += extra;
     return send(verb, QUrl(urlOrPath.startsWith("http") ? urlOrPath : QString(kApi) + urlOrPath), body, headers);
 }
 
@@ -530,19 +531,34 @@ bool Graph::uploadFile(const QString &localFile, const QString &remoteParent,
 
 bool Graph::uploadLarge(const QString &localFile, const QString &remotePath,
                         const std::function<void(qint64)> &progress, QString *error) {
-    QFile file(localFile);
-    if (!file.open(QIODevice::ReadOnly)) {
-        *error = tr("Cannot read %1").arg(QFileInfo(localFile).fileName());
+    const GraphReply reply = uploadSession(itemUrl(remotePath) + "/createUploadSession",
+                                           {{"@microsoft.graph.conflictBehavior", "rename"}}, {}, localFile, progress);
+    if (!reply.ok()) {
+        *error = reply.error;
         return false;
     }
+    stampModified(reply.json(), QFileInfo(localFile).lastModified());
+    return true;
+}
 
-    const QJsonObject item{{"@microsoft.graph.conflictBehavior", "rename"}};
-    const GraphReply session = call("POST", itemUrl(remotePath) + "/createUploadSession",
-                                    QJsonDocument(QJsonObject{{"item", item}}).toJson(QJsonDocument::Compact));
+GraphReply Graph::uploadSession(const QString &sessionUrl, const QJsonObject &item,
+                                const QList<QPair<QByteArray, QByteArray>> &headers, const QString &localFile,
+                                const std::function<void(qint64)> &progress) {
+    GraphReply out;
+    QFile file(localFile);
+    if (!file.open(QIODevice::ReadOnly)) {
+        out.error = tr("Cannot read %1").arg(QFileInfo(localFile).fileName());
+        return out;
+    }
+
+    const GraphReply session = call("POST", sessionUrl, QJsonDocument(QJsonObject{{"item", item}}).toJson(QJsonDocument::Compact),
+                                    "application/json", headers);
     const QString uploadUrl = session.json().value("uploadUrl").toString();
     if (!session.ok() || uploadUrl.isEmpty()) {
-        *error = session.ok() ? tr("OneDrive refused the upload") : session.error;
-        return false;
+        out = session;
+        if (out.ok())
+            out.error = tr("OneDrive refused the upload");
+        return out;
     }
 
     const qint64 total = file.size();
@@ -551,23 +567,46 @@ bool Graph::uploadLarge(const QString &localFile, const QString &remotePath,
         const QByteArray chunk = file.read(kChunk);
         const QByteArray range = QString("bytes %1-%2/%3").arg(sent).arg(sent + chunk.size() - 1).arg(total).toUtf8();
 
-        GraphReply reply;
         for (int attempt = 0; attempt < 3; ++attempt) {
-            reply = send("PUT", QUrl(uploadUrl), chunk, {{"Content-Range", range}}, 180000);
-            if (reply.ok())
+            out = send("PUT", QUrl(uploadUrl), chunk, {{"Content-Range", range}}, 180000);
+            if (out.ok() || out.status == 409 || out.status == 412)
                 break;
         }
-        if (!reply.ok()) {
+        if (!out.ok()) {
             send("DELETE", QUrl(uploadUrl), {}, {});  // drop the unfinished session
-            *error = reply.error;
-            return false;
+            return out;
         }
         sent += chunk.size();
         progress(sent);
-        if (sent >= total)
-            stampModified(reply.json(), QFileInfo(localFile).lastModified());
     }
-    return true;
+    return out;
+}
+
+QString Graph::delta(const QString &link, const QString &select, const std::function<void(const QJsonObject &)> &onItem,
+                     const std::function<void()> &onReset, QString *error) {
+    const QString fresh = "https://graph.microsoft.com/v1.0/me/drive/root/delta?$top=1000&$select=" + select;
+    QString url = link.isEmpty() ? fresh : link;
+    QString next;
+    while (!url.isEmpty()) {
+        const GraphReply reply = call("GET", url);
+        if (reply.status == 410 && url != fresh) {  // the link expired: read everything again
+            onReset();
+            url = fresh;
+            continue;
+        }
+        if (!reply.ok()) {
+            *error = reply.error;
+            return {};
+        }
+        const QJsonObject page = reply.json();
+        for (const QJsonValue &v : page.value("value").toArray())
+            onItem(v.toObject());
+        url = page.value("@odata.nextLink").toString();
+        next = page.value("@odata.deltaLink").toString(next);
+    }
+    if (next.isEmpty())
+        *error = tr("OneDrive did not finish the change list");
+    return next;
 }
 
 // Keeps the local file's modification time on OneDrive, like the Windows

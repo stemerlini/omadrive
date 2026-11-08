@@ -81,25 +81,9 @@ bool update(Graph &graph, const QString &id, int limit, QList<QJsonObject> &file
                 files.append(v.toObject());
         }
     }
-    const QString fresh = QString(kDrive) + "/root/delta?$top=1000&$select=id,name,size,webUrl,lastModifiedDateTime,"
-                                            "lastModifiedBy,fileSystemInfo,parentReference,file,deleted";
-    if (url.isEmpty())
-        url = fresh;
-    QString delta;
-    while (!url.isEmpty()) {
-        const GraphReply reply = graph.call("GET", url);
-        if (reply.status == 410 && url != fresh) {  // the link expired: read everything again
-            files.clear();
-            url = fresh;
-            continue;
-        }
-        if (!reply.ok()) {
-            *error = reply.error;
-            return false;
-        }
-        const QJsonObject page = reply.json();
-        for (const QJsonValue &v : page.value("value").toArray()) {
-            const QJsonObject item = v.toObject();
+    const QString delta = graph.delta(
+        url, "id,name,size,webUrl,lastModifiedDateTime,lastModifiedBy,fileSystemInfo,parentReference,file,deleted",
+        [&](const QJsonObject &item) {
             // A renamed or moved folder does not list its files again, so every
             // kept path may be out of date: look them up again below.
             if (!item.contains("file") && !item.contains("root"))
@@ -113,11 +97,13 @@ bool update(Graph &graph, const QString &id, int limit, QList<QJsonObject> &file
                         files.end());
             if (item.contains("file") && !item.contains("deleted"))
                 files.append(fileOf(item));
-        }
-        trim(files);
-        url = page.value("@odata.nextLink").toString();
-        delta = page.value("@odata.deltaLink").toString(delta);
-    }
+            if (files.size() > 1000)
+                trim(files);
+        },
+        [&] { files.clear(); }, error);
+    if (delta.isEmpty())
+        return false;
+    trim(files);
     // Work drives leave the folder out of delta results, and folder changes
     // clear it above; only the files about to be shown are looked up.
     for (int i = 0; i < files.size() && i < limit; ++i) {

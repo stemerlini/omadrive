@@ -42,6 +42,39 @@ Right-click a OneDrive item for its cloud actions: **Always keep on this device*
 
 Originals are never overwritten: name clashes get a ` (2)` suffix.
 
+## Sync folder (mount)
+
+`omadrive mount` turns an account's folder (`~/OneDrive-Personal`, `~/OneDrive-SES`, …) into a two-way OneDrive sync folder, like `rclone mount` with a cache. It is a FUSE file system (it needs `fuse3`) showing the whole OneDrive tree: listing never downloads, a file downloads the first time it is opened, and local changes upload a few seconds after the last write. Each item has a state, in the `user.omadrive.state` extended attribute (`getfattr -n user.omadrive.state <file>`):
+
+- `cloud`: online only, nothing on this device;
+- `local`: on this device and the same as OneDrive;
+- `pending`: changed here and waiting to upload (or uploading);
+- `conflict`: a copy kept because the file changed on both sides.
+
+```
+omadrive mount [--account <id|email>] [--foreground] [--mountpoint <dir>]
+omadrive unmount [--account <id|email>]
+```
+
+It is meant to run as a systemd user service, one per account: `systemctl --user enable --now omadrive-mount@<accountId>` (the ids are in `omadrive agent accounts`). It refuses to mount over a folder that is not empty, so move an existing mirror folder aside first (`mv ~/OneDrive-Personal ~/OneDrive-Personal.old`) and copy back what is not on OneDrive yet.
+
+How it syncs:
+
+- The tree and the cached files live in `~/.cache/omadrive/mount/<accountId>/`. It starts from the saved tree straight away and checks OneDrive's change feed every 30 seconds (`omadrive agent refresh` checks now). Every local change is journalled as it happens, so changes made offline, or while the service was stopped, upload later.
+- Uploads replace the OneDrive item only if it is still the version this device last saw, keeping its version history and modified time. Saving over a file the way editors do (write a new file, rename it over the old one) also makes a new version of the same item.
+- Nothing is ever overwritten. If a file changed on OneDrive while it also changed here, OneDrive's version keeps the name and the local one is uploaded beside it as `<name> (conflict <host> <YYYY-MM-DD HHMM>).<ext>`, in state `conflict` until renamed or deleted.
+- Deleting puts the item in the OneDrive recycle bin (file managers delete straight there instead of using their own trash), and a file changed on OneDrive since is kept instead. Renames and moves within the folder are renames on OneDrive.
+- Editor lock and swap files (`.~lock.*#`, `~$*`, `.*.swp`) stay on this device.
+- Work files stay in their account: the mount only talks to its own account's drive, shared folders and SharePoint libraries are not shown (so never written to), it refuses to mount inside another account's folder, and moving files between two mounted accounts fails as between two disks.
+
+Status for scripts and the bar is in `~/.cache/omadrive/mount/<accountId>/status.json` (pending and conflict counts, last sync, last error), and through the agent:
+
+```
+omadrive agent status <path>          # state, size, modified, eTag and pending uploads (JSON)
+omadrive agent pending [--account …]  # what each mount still has to upload, and its conflicts
+omadrive agent refresh [--account …]  # check OneDrive for changes now
+```
+
 ## Bar panel
 
 `omarchy-plugin/install.sh` adds a OneDrive icon to the Omarchy bar, beside the tray. Its panel lists the files most recently changed in each account, with the storage used; a tick marks files on this device, which open from the mirror, and the rest open on the web. Click opens the panel, right-click checks now, middle-click opens omadrive; in the panel `r` checks and `o` opens omadrive. It runs `omadrive --recent N`, which prints the same as JSON; it reads OneDrive's change feed, so the first check reads the whole drive (about half a minute), and later ones only what changed, cached in `~/.cache/omadrive/recent/`. It checks when opened and every five minutes, which its bar settings can turn off.
@@ -60,6 +93,8 @@ omadrive agent mkdir <remoteParent> <name>
 omadrive agent rename <path> <newName>
 omadrive agent trash <path>
 omadrive agent share <path> [--edit] [--scope anonymous|organization]
+omadrive agent status <path>          omadrive agent pending
+omadrive agent refresh
 ```
 
 Each command names its account (the active one by default) and prints one JSON object, `{"ok":true,…}` or `{"ok":false,"error":…}`. The account safety is enforced here, so it holds for every caller:

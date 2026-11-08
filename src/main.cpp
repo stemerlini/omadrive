@@ -13,6 +13,7 @@
 #include "backend.h"
 #include "folderlist.h"
 #include "mirror.h"
+#include "mount.h"
 #include "onedrivelist.h"
 #include "preview.h"
 #include "recent.h"
@@ -33,6 +34,14 @@ int main(int argc, char *argv[]) {
         for (int i = 2; i < argc; ++i)
             args << QString::fromLocal8Bit(argv[i]);
         return runAgent(args);
+    }
+    if (argc >= 2 && (QByteArray(argv[1]) == "mount" || QByteArray(argv[1]) == "unmount")) {
+        QCoreApplication app(argc, argv);
+        app.setApplicationName("omadrive");
+        QStringList args;
+        for (int i = 2; i < argc; ++i)
+            args << QString::fromLocal8Bit(argv[i]);
+        return QByteArray(argv[1]) == "mount" ? runMount(args) : runUnmount(args);
     }
     QGuiApplication app(argc, argv);
     app.setApplicationName("omadrive");

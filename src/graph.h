@@ -61,12 +61,25 @@ public:
     QByteArray photo();  // the profile picture, empty when there is none
 
     GraphReply call(const QByteArray &verb, const QString &urlOrPath, const QByteArray &body = {},
-                    const QByteArray &contentType = "application/json");
+                    const QByteArray &contentType = "application/json",
+                    const QList<QPair<QByteArray, QByteArray>> &headers = {});
     QList<QJsonObject> children(const QString &path, QString *error);
     bool download(const QUrl &url, const QString &file, const std::function<void(qint64)> &progress, QString *error);
     // Uploads never overwrite: OneDrive renames on a name clash.
     bool uploadFile(const QString &localFile, const QString &remoteParent,
                     const std::function<void(qint64)> &progress, QString *error);
+    // Sends localFile through an upload session made at sessionUrl (a
+    // ".../createUploadSession" address) with the given item properties and
+    // headers (say If-Match); returns the last reply, the item when it worked.
+    GraphReply uploadSession(const QString &sessionUrl, const QJsonObject &item,
+                             const QList<QPair<QByteArray, QByteArray>> &headers, const QString &localFile,
+                             const std::function<void(qint64)> &progress);
+    // Reads the drive's change feed from link (from the start when empty),
+    // handing each changed item to onItem. When OneDrive has expired the link
+    // it calls onReset and reads everything again. Returns the next link, or
+    // empty with an error.
+    QString delta(const QString &link, const QString &select, const std::function<void(const QJsonObject &)> &onItem,
+                  const std::function<void()> &onReset, QString *error);
     // Returns the name OneDrive gave the folder, or empty with an error.
     QString createFolder(const QString &remoteParent, const QString &name, bool failIfExists, QString *error);
 

@@ -7,9 +7,9 @@
 #include <QStringList>
 #include <QString>
 
-// The local folder that mirrors the active account's OneDrive: ~/OneDrive for
-// the first personal account (or "mirror" in auth.json), "~/OneDrive - SES"
-// style for the others. OneDrive "/a/b.txt" lives at "<mirror>/a/b.txt".
+// The local folder that mirrors the active account's OneDrive:
+// ~/OneDrive-Personal for the first personal account (or "mirror" in
+// auth.json), ~/OneDrive-<Org> (say ~/OneDrive-SES) for the others. OneDrive "/a/b.txt" lives at "<mirror>/a/b.txt".
 // Downloads land there, and each OneDrive item is shown as online only,
 // available locally, or changed (the local copy differs in size or time).
 class Mirror : public QObject {
