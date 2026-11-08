@@ -210,7 +210,14 @@ Rectangle {
 
     Connections {
         target: pane.folder
+        ignoreUnknownSignals: true  // only OneDrive lists have accounts
         function onPathChanged() { pane.clearMarks() }
+        // The marks and highlight name the other account's files.
+        function onAccountChanged() {
+            pane.clearMarks()
+            pane.lastPath = ""
+            pane.tab.selected = ""
+        }
         function onModelAboutToBeReset() { pane.resetting = true }
         function onModelReset() {
             // Wait for the ListView to settle before restoring the highlight.
@@ -224,52 +231,95 @@ Rectangle {
         onDropped: drop => pane.handleDrop(drop, pane.folder.path)
     }
 
-    Menu {
+    AppMenu {
         id: menu
-        MenuItem { text: qsTr("Open"); onTriggered: pane.menuAction("open") }
-        MenuItem {
+        // Several marked items: the download / free up entries cover them all.
+        readonly property bool many: pane.markedCount > 1
+        readonly property bool isDir: pane.folder.isDirAt(list.currentIndex)
+        // A submenu can't hide itself, so its entry is hidden here.
+        onAboutToShow: {
+            for (var i = 0; i < count; ++i) {
+                var it = itemAt(i)
+                if (it && it.subMenu === shareMenu)
+                    it.visible = pane.remote
+            }
+        }
+        readonly property string org: account.accounts.filter(function (a) { return a.active }).map(function (a) { return a.org })[0] || qsTr("your organization")
+
+        AppMenuItem { text: qsTr("Open"); iconName: "menu-open"; hint: "Enter"; onTriggered: pane.menuAction("open") }
+        AppMenuItem {
             text: qsTr("Open in new tab")
-            visible: pane.folder.isDirAt(list.currentIndex)
-            height: visible ? implicitHeight : 0
+            iconName: "menu-tab"
+            hint: qsTr("Middle-click")
+            visible: menu.isDir
             onTriggered: pane.openInNewTab(pane.currentPath())
         }
-        MenuItem { text: qsTr("Preview\tSpace"); onTriggered: pane.menuAction("preview") }
-        MenuItem {
-            text: qsTr("Download to %1").arg(mirror.root.replace(backend.homePath(), "~"))
+        AppMenuItem { text: qsTr("Preview"); iconName: "menu-preview"; hint: "Space"; visible: !menu.isDir; onTriggered: pane.menuAction("preview") }
+
+        MenuSeparator { visible: pane.remote; height: visible ? implicitHeight : 0 }
+        AppMenuItem {
+            text: qsTr("Always keep on this device")
+            iconName: "menu-download"
             visible: pane.remote
-            height: visible ? implicitHeight : 0
+            enabled: menu.many || menu.isDir || pane.currentItemCloud === "online"
             onTriggered: pane.menuAction("mirror")
         }
-        MenuSeparator {}
-        MenuItem { text: qsTr("Copy\tCtrl+C"); onTriggered: pane.menuAction("clipCopy") }
-        MenuItem { text: qsTr("Cut\tCtrl+X"); onTriggered: pane.menuAction("clipCut") }
-        MenuItem { text: qsTr("Paste\tCtrl+V"); enabled: pane.canPaste; onTriggered: pane.menuAction("paste") }
-        MenuItem { text: qsTr("Copy path\tCtrl+Shift+C"); onTriggered: pane.menuAction("copyPath") }
-        MenuItem {
-            text: qsTr("Copy to the other pane\tAlt+C")
-            visible: pane.paired
-            height: visible ? implicitHeight : 0
-            onTriggered: pane.menuAction("copy")
+        AppMenuItem {
+            text: qsTr("Free up space")
+            iconName: "menu-freeup"
+            visible: pane.remote
+            enabled: menu.many || menu.isDir || pane.currentItemCloud !== "online"
+            onTriggered: pane.menuAction("freeUp")
         }
-        MenuItem {
-            text: qsTr("Move to the other pane\tAlt+M")
-            visible: pane.paired
-            height: visible ? implicitHeight : 0
-            onTriggered: pane.menuAction("move")
+        AppMenu {
+            id: shareMenu
+            title: qsTr("Share")
+            iconName: "menu-share"
+            AppMenuItem {
+                text: account.business ? qsTr("Link for %1 · can view").arg(menu.org)
+                                       : qsTr("Copy link · can view")
+                iconName: "menu-link"
+                onTriggered: pane.menuAction(account.business ? "share:org-view" : "share:view")
+            }
+            AppMenuItem {
+                text: account.business ? qsTr("Link for %1 · can edit").arg(menu.org)
+                                       : qsTr("Copy link · can edit")
+                iconName: "menu-link"
+                onTriggered: pane.menuAction(account.business ? "share:org-edit" : "share:edit")
+            }
+            AppMenuItem {
+                text: qsTr("Link for anyone · can view")
+                iconName: "menu-web"
+                visible: account.business
+                onTriggered: pane.menuAction("share:anyone")
+            }
+            MenuSeparator {}
+            AppMenuItem { text: qsTr("Share with people…"); iconName: "menu-people"; onTriggered: pane.menuAction("shareInvite") }
         }
+        AppMenuItem { text: qsTr("Open on the web"); iconName: "menu-web"; visible: pane.remote; onTriggered: pane.menuAction("web") }
+
         MenuSeparator {}
-        MenuItem { text: qsTr("Rename\tF2"); onTriggered: pane.menuAction("rename") }
-        Menu {
+        AppMenuItem { text: qsTr("Copy"); iconName: "menu-copy"; hint: "Ctrl+C"; onTriggered: pane.menuAction("clipCopy") }
+        AppMenuItem { text: qsTr("Cut"); iconName: "menu-cut"; hint: "Ctrl+X"; onTriggered: pane.menuAction("clipCut") }
+        AppMenuItem { text: qsTr("Paste"); iconName: "menu-paste"; hint: "Ctrl+V"; enabled: pane.canPaste; onTriggered: pane.menuAction("paste") }
+        AppMenuItem { text: qsTr("Copy path"); iconName: "menu-path"; hint: "Ctrl+Shift+C"; onTriggered: pane.menuAction("copyPath") }
+        AppMenuItem { text: qsTr("Copy to the other pane"); iconName: "menu-transfer"; hint: "Alt+C"; visible: pane.paired; onTriggered: pane.menuAction("copy") }
+        AppMenuItem { text: qsTr("Move to the other pane"); iconName: "menu-transfer"; hint: "Alt+M"; visible: pane.paired; onTriggered: pane.menuAction("move") }
+
+        MenuSeparator {}
+        AppMenuItem { text: qsTr("Rename"); iconName: "menu-rename"; hint: "F2"; enabled: !menu.many; onTriggered: pane.menuAction("rename") }
+        AppMenu {
             id: newSubMenu
             title: qsTr("New")
+            iconName: "menu-new"
             Instantiator {
                 model: pane.newKinds
-                delegate: MenuItem { required property var modelData; required property int index; text: modelData.label; onTriggered: pane.menuAction("new:" + index) }
+                delegate: AppMenuItem { required property var modelData; required property int index; text: modelData.label; onTriggered: pane.menuAction("new:" + index) }
                 onObjectAdded: (index, object) => newSubMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => newSubMenu.removeItem(object)
             }
         }
-        MenuItem { text: qsTr("Move to the trash\tDelete"); onTriggered: pane.menuAction("trash") }
+        AppMenuItem { text: qsTr("Move to the trash"); iconName: "menu-trash"; hint: "Delete"; onTriggered: pane.menuAction("trash") }
     }
 
     ColumnLayout {
@@ -324,7 +374,7 @@ Rectangle {
                             }
                             Label {
                                 padding: 4
-                                text: crumb.index === 0 ? (pane.remote ? "OneDrive" : "/") : pane.segments[crumb.index - 1]
+                                text: crumb.index === 0 ? (pane.remote ? account.driveName : "/") : pane.segments[crumb.index - 1]
                                 color: crumb.index === pane.segments.length ? "#e6e6e6" : theme.accent
                                 font.underline: crumbHover.hovered
                                 HoverHandler { id: crumbHover; cursorShape: Qt.PointingHandCursor }

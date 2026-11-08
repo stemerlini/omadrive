@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QStringList>
+#include <QUrl>
 #include <functional>
 
 // Copies, moves and edits between the local disk and OneDrive on a worker
@@ -28,19 +29,33 @@ public:
     Q_INVOKABLE void makeFile(const QString &remoteParent, const QString &name, const QString &content);
     Q_INVOKABLE void renameItem(const QString &remotePath, const QString &newName);
     Q_INVOKABLE void trash(const QStringList &remotePaths);
+    // Deletes the mirror's copies that match OneDrive, leaving them online only.
+    Q_INVOKABLE void freeUp(const QStringList &remotePaths);
+
+    // These run beside a transfer and report through done(). The link goes
+    // to the clipboard; scope is empty (the account's default),
+    // "organization" or "anonymous".
+    Q_INVOKABLE void shareLink(const QString &remotePath, bool edit, const QString &scope);
+    Q_INVOKABLE void invite(const QString &remotePath, const QStringList &emails, bool edit, const QString &message);
+    Q_INVOKABLE void openOnline(const QString &remotePath);
 
 signals:
     void busyChanged();
     void progressChanged();
     void finished(const QString &error, const QString &text);
+    void done(const QString &error, const QString &text);
 
 private:
     struct Result {
+        Result(const QString &error = {}, const QString &text = {}) : error(error), text(text) {}
         QString error, text;
+        QString copy;  // put on the clipboard
+        QUrl open;     // opened in the browser
     };
     using Say = std::function<void(const QString &)>;
 
     void start(std::function<Result(const Say &)> job);
+    void quick(std::function<Result()> job);
     void downloadAll(const QStringList &remotePaths, const std::function<QString(const QString &)> &dirFor,
                      bool merge, bool removeSource);
 

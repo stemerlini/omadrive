@@ -3,6 +3,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include "account.h"
 #include "backend.h"
 #include "folderlist.h"
 #include "mirror.h"
@@ -14,6 +15,16 @@ class OmadriveTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void workAccountsGetTheirOwnMirror()
+    {
+        Profile work;
+        work.business = true;
+        work.org = "SES/Lux";
+        const QString base = QDir::homePath() + "/OneDrive - SES-Lux";
+        QCOMPARE(Account::defaultMirror(work, {}), base);
+        QCOMPARE(Account::defaultMirror(work, {base}), base + " (2)");
+    }
+
     void copyNeverOverwrites()
     {
         QTemporaryDir dir;

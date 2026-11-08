@@ -64,7 +64,7 @@ ApplicationWindow {
     function tabLabel(tab) {
         var path = tab.folder.path
         if (tab.remote && path === "/")
-            return qsTr("OneDrive")
+            return account.driveName
         if (!tab.remote && path === backend.homePath())
             return qsTr("Home")
         return path === "/" ? "/" : path.split("/").pop()
@@ -388,6 +388,19 @@ ApplicationWindow {
         else if (action === "clipCut") clipboardPut(true)
         else if (action === "paste") paste()
         else if (action === "copyPath") copyPaths()
+        else if (action === "freeUp") transfer.freeUp(activePane.targets())
+        else if (action === "web") transfer.openOnline(shareTarget())
+        else if (action === "shareInvite") shareDialog.ask(shareTarget())
+        else if (action.startsWith("share:")) {
+            var kind = action.slice(6)
+            transfer.shareLink(shareTarget(), kind.endsWith("edit"),
+                               kind === "anyone" ? "anonymous" : kind.startsWith("org") ? "organization" : "")
+        }
+    }
+
+    // Sharing works on the highlighted item, or the folder shown when none is.
+    function shareTarget() {
+        return activePane.currentPath() || activePane.folder.path
     }
 
     // A OneDrive file opens from the mirror, downloading it first if needed.
@@ -537,13 +550,13 @@ ApplicationWindow {
     }
 
     Connections {
+        target: transfer
+        function onDone(error, text) { win.report(error, text) }
+    }
+
+    Connections {
         target: account
-        function onStateChanged() {
-            if (account.error !== "")
-                win.say(account.error, true)
-            else if (account.signedIn)
-                win.say(qsTr("Signed in as %1").arg(account.name), false)
-        }
+        function onNotice(text, isError) { win.say(text, isError) }
     }
 
     Shortcut { sequence: "Ctrl+A"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.markAll() }
@@ -563,6 +576,7 @@ ApplicationWindow {
         }
     }
     Shortcut { sequence: "Ctrl+Shift+L"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: account.signOut() }
+    Shortcut { sequence: "Ctrl+Shift+A"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: account.switchNext() }
 
     Timer { id: messageTimer; interval: 6000; onTriggered: win.message = "" }
 
@@ -736,6 +750,84 @@ ApplicationWindow {
         }
     }
 
+    // Share with people: their addresses, view or edit, and a note.
+    Dialog {
+        id: shareDialog
+        property string path: ""
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        width: Math.min(win.width - 40, 480)
+        padding: 16
+        topPadding: 4
+        title: qsTr("Share “%1”").arg(path === "/" ? account.driveName : path.split("/").pop())
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        readonly property var emails: emailField.text.split(/[\s,;]+/).filter(function (e) { return e.indexOf("@") > 0 })
+
+        function ask(target) {
+            path = target
+            emailField.text = ""
+            noteField.text = ""
+            roleBox.currentIndex = 0
+            open()
+            emailField.forceActiveFocus()
+        }
+
+        background: Rectangle { color: "#18181b"; radius: theme.radius; border.color: "#2a2a2e" }
+        header: Label {
+            text: shareDialog.title
+            padding: 16
+            bottomPadding: 4
+            font.bold: true
+            elide: Text.ElideMiddle
+            color: "#e6e6e6"
+        }
+        footer: DialogButtonBox {
+            background: null
+            Button {
+                text: qsTr("Send")
+                enabled: shareDialog.emails.length > 0
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                highlighted: true
+            }
+            Button { text: qsTr("Cancel"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole; flat: true }
+        }
+
+        onAccepted: if (emails.length > 0) transfer.invite(path, emails, roleBox.currentIndex === 1, noteField.text)
+        onClosed: win.activePane.focusList()
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("They get an email with a link; they sign in to open it.")
+                color: "#9a9aa0"
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                TextField {
+                    id: emailField
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Email addresses, separated by commas")
+                    onAccepted: if (shareDialog.emails.length > 0) shareDialog.accept()
+                }
+                ComboBox {
+                    id: roleBox
+                    model: [qsTr("Can view"), qsTr("Can edit")]
+                    implicitWidth: 130
+                }
+            }
+            TextField {
+                id: noteField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Message (optional)")
+            }
+        }
+    }
+
     // Ctrl+N: pick what to create, by arrows and Enter, the underlined
     // letter, or a click.
     Popup {
@@ -846,7 +938,7 @@ ApplicationWindow {
             columnSpacing: 32
             rowSpacing: 6
             flow: Grid.TopToBottom
-            rows: 14
+            rows: 15
             Repeater {
                 model: [
                     ["Tab", qsTr("Local ⇄ OneDrive (with two panes: switch pane)")],
@@ -875,7 +967,9 @@ ApplicationWindow {
                     ["Delete", qsTr("Move to the trash")],
                     ["Ctrl+R / F5", qsTr("Refresh")],
                     ["Ctrl+H", qsTr("Show hidden files")],
-                    ["Ctrl+Shift+L", qsTr("Sign out of OneDrive")],
+                    ["Right-click", qsTr("Share, free up space, open on the web…")],
+                    ["Ctrl+Shift+A", qsTr("Switch OneDrive account")],
+                    ["Ctrl+Shift+L", qsTr("Sign out of this account")],
                     ["Ctrl+Q", qsTr("Quit")]
                 ]
                 delegate: Row {

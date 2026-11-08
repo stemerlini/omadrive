@@ -104,8 +104,10 @@ void Preview::show(const QString &path, bool remote) {
             set(result);
     });
     const QString cacheDir = m_cacheDir;
-    watcher->setFuture(QtConcurrent::run([path, remote, cacheDir] {
-        return remote ? Preview::remote(path, cacheDir) : Preview::local(path);
+    Graph *graph = &Graph::active();
+    const QString root = Mirror::root();
+    watcher->setFuture(QtConcurrent::run([path, remote, cacheDir, graph, root] {
+        return remote ? Preview::remote(*graph, root, path, cacheDir) : Preview::local(path);
     }));
 }
 
@@ -155,8 +157,7 @@ Preview::Result Preview::local(const QString &path) {
     return r;
 }
 
-Preview::Result Preview::remote(const QString &path, const QString &cacheDir) {
-    Graph &graph = Graph::instance();
+Preview::Result Preview::remote(Graph &graph, const QString &mirrorRoot, const QString &path, const QString &cacheDir) {
     Result r;
     r.name = path.section('/', -1);
     const GraphReply meta = graph.call("GET", Graph::itemUrl(path));
@@ -196,7 +197,7 @@ Preview::Result Preview::remote(const QString &path, const QString &cacheDir) {
     const QDateTime modified = QDateTime::fromString(stamp, Qt::ISODate);
 
     // A matching copy in the mirror needs no download.
-    const QString mirrored = Mirror::localPath(path);
+    const QString mirrored = Mirror::localPath(mirrorRoot, path);
     if (Mirror::sameFile(mirrored, bytes, modified)) {
         r = local(mirrored);
         r.details = joinDetails({r.details, trp("on this device")});

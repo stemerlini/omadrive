@@ -5,9 +5,37 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMutex>
+#include <QPointer>
 #include <QStandardPaths>
 
+namespace {
+QMutex s_mutex;
+QString s_root;
+QPointer<Mirror> s_mirror;
+}  // namespace
+
+Mirror::Mirror(QObject *parent) : QObject(parent) {
+    s_mirror = this;
+}
+
 QString Mirror::root() {
+    QMutexLocker lock(&s_mutex);
+    return s_root.isEmpty() ? configuredRoot() : s_root;
+}
+
+void Mirror::setRoot(const QString &root) {
+    {
+        QMutexLocker lock(&s_mutex);
+        if (root == s_root)
+            return;
+        s_root = root;
+    }
+    if (s_mirror)
+        emit s_mirror->rootChanged();
+}
+
+QString Mirror::configuredRoot() {
     static const QString path = [] {
         QFile file(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omadrive/auth.json");
         QString configured;
@@ -21,7 +49,11 @@ QString Mirror::root() {
 }
 
 QString Mirror::localPath(const QString &remotePath) {
-    return QDir::cleanPath(root() + "/" + remotePath);
+    return localPath(root(), remotePath);
+}
+
+QString Mirror::localPath(const QString &root, const QString &remotePath) {
+    return QDir::cleanPath(root + "/" + remotePath);
 }
 
 bool Mirror::sameFile(const QString &localFile, qint64 size, const QDateTime &modified) {

@@ -130,10 +130,10 @@ RowLayout {
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 onClicked: newMenu.popup()
-                Menu {
+                AppMenu {
                     id: newMenu
-                    MenuItem { text: qsTr("New local tab"); onTriggered: strip.newTab(false) }
-                    MenuItem { text: qsTr("New OneDrive tab"); onTriggered: strip.newTab(true) }
+                    AppMenuItem { text: qsTr("New local tab"); iconName: "menu-folder"; onTriggered: strip.newTab(false) }
+                    AppMenuItem { text: qsTr("New %1 tab").arg(account.driveName); iconName: "tab-cloud"; onTriggered: strip.newTab(true) }
                 }
             }
         }
@@ -164,19 +164,8 @@ RowLayout {
         onClicked: strip.helpRequested()
     }
 
-    ToolButton {
-        id: accountButton
-        implicitHeight: 34
-        focusPolicy: Qt.NoFocus
-        text: account.signedIn ? (account.name !== "" ? account.name : qsTr("OneDrive"))
-            : account.restoring ? qsTr("Connecting…")
-            : account.state === "signingIn" ? qsTr("Signing in…")
-            : qsTr("Sign in")
-        font.capitalization: Font.MixedCase
-        onClicked: account.signedIn ? accountMenu.popup() : account.state === "signedOut" ? account.signIn() : null
-        Menu {
-            id: accountMenu
-            MenuItem { text: qsTr("Sign out (Ctrl+Shift+L)"); onTriggered: account.signOut() }
-        }
+    AccountBar {
+        Layout.leftMargin: 4
+        Layout.rightMargin: 4
     }
 }

@@ -13,6 +13,8 @@ class OneDriveList : public QAbstractListModel {
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    // The account shown; it changes with Account::switchTo.
+    Q_PROPERTY(QString account READ accountId NOTIFY accountChanged)
 
 public:
     enum Roles { NameRole = Qt::UserRole + 1, PathRole, IsDirRole, SizeTextRole, ModifiedRole, CloudRole };
@@ -29,6 +31,7 @@ public:
     void setPath(const QString &path);
     QString error() const { return m_error; }
     bool loading() const { return m_loading; }
+    QString accountId() const { return m_accountId; }
 
     Q_INVOKABLE void up();
     Q_INVOKABLE void refresh();
@@ -42,6 +45,7 @@ signals:
     void pathChanged();
     void errorChanged();
     void loadingChanged();
+    void accountChanged();
 
 private:
     struct Entry {
@@ -52,9 +56,10 @@ private:
         QString cloud;  // see Mirror::state
     };
 
+    void accountStateChanged();
     void navigate(const QString &path);
     void fetch(const QString &path);
-    void received(const QString &path, const QVector<Entry> &entries, const QString &error);
+    void received(const QString &account, const QString &path, const QVector<Entry> &entries, const QString &error);
     void show(const QString &path, QVector<Entry> entries);
     void prefetch();
     void clear();
@@ -62,11 +67,15 @@ private:
     void setError(const QString &error);
 
     Account *m_account;
+    QString m_accountId;
+    bool m_signedIn = false;
     QString m_path = "/", m_target = "/", m_error;
+    // Where this tab was in each account, for switching back.
+    QHash<QString, QString> m_places;
     bool m_loading = false, m_prefetching = false;
     QVector<Entry> m_entries;
-    // Listings seen so far, shared by every tab: a revisited folder shows at
-    // once and is then checked against OneDrive in the background.
-    static QHash<QString, QVector<Entry>> &cache();
+    // Listings seen so far per account, shared by every tab: a revisited
+    // folder shows at once and is then checked against OneDrive in the background.
+    QHash<QString, QVector<Entry>> &cache() const;
     QStringList m_prefetchQueue;
 };

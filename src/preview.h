@@ -6,6 +6,8 @@
 
 // What the Space-bar preview shows for one file or folder, local or on
 // OneDrive. Loading runs on a worker thread; only the latest request wins.
+class Graph;
+
 class Preview : public QObject {
     Q_OBJECT
     // "", "loading", "image", "text", "pdf", "folder", "info" or "error".
@@ -39,7 +41,7 @@ public:
     Q_INVOKABLE void clear();
 
     static Result local(const QString &path);
-    static Result remote(const QString &path, const QString &cacheDir);
+    static Result remote(Graph &graph, const QString &mirrorRoot, const QString &path, const QString &cacheDir);
 
 signals:
     void changed();

@@ -18,23 +18,47 @@ struct GraphReply {
     bool ok() const { return error.isEmpty(); }
 };
 
+// Who a sign-in belongs to.
+struct Profile {
+    QString id, name, email, org;  // org: the work or school, empty for a personal account
+    bool business = false;
+};
+
 // Microsoft Graph client for OneDrive. Every call blocks, so call it from a
 // worker thread. Sign-in uses the OAuth code flow with PKCE as a public
-// client (no secret); the refresh token lives in the system keyring.
+// client (no secret). Each account has its own Graph, and its refresh token
+// lives in the system keyring under the account's id.
 class Graph {
 public:
-    static Graph &instance();
+    // The account OneDrive is shown for. Jobs take it when they start, so a
+    // switch halfway through never sends their remaining calls elsewhere.
+    static Graph &active();
+    static void setActive(const QString &id);
+    static Graph *forAccount(const QString &id);  // made on first use; lives for the app
 
     // The app registration comes from ~/.config/omadrive/auth.json.
-    bool configured() const { return !m_clientId.isEmpty(); }
-    QString configPath() const;
-    QString authorizeUrl(const QString &redirect, const QString &challenge, const QString &state) const;
+    static bool configured();
+    static QString configPath();
+    static QString authorizeUrl(const QString &redirect, const QString &challenge, const QString &state,
+                                const QString &loginHint = {});
+
+    // A Graph made without an id is a sign-in in progress: it keeps its token
+    // to itself until adopt() hands it to the account it turned out to be.
+    explicit Graph(const QString &id = {});
+    QString id() const { return m_id; }
 
     bool exchangeCode(const QString &code, const QString &verifier, const QString &redirect, QString *error);
     bool restore(QString *error);  // false without an error means no saved sign-in
+    // Signs in with the token saved before accounts had ids; false if there is
+    // none. The token stays in place until clearLegacy(), once adopted.
+    bool restoreLegacy(QString *error);
+    static bool hasLegacy();
+    static void clearLegacy();
+    void adopt(Graph &signedIn);
     void signOut();
     bool signedIn() const;
-    QString displayName();
+    Profile profile(QString *error);
+    QByteArray photo();  // the profile picture, empty when there is none
 
     GraphReply call(const QByteArray &verb, const QString &urlOrPath, const QByteArray &body = {},
                     const QByteArray &contentType = "application/json");
@@ -55,15 +79,15 @@ public:
                            const QList<QPair<QByteArray, QByteArray>> &headers, int timeoutMs = 60000);
 
 private:
-    Graph();
-
     bool tokenRequest(const QList<QPair<QString, QString>> &form, QString *error);
     QString accessToken(QString *error);
     void stampModified(const QJsonObject &item, const QDateTime &modified);
     bool uploadLarge(const QString &localFile, const QString &remotePath,
                      const std::function<void(qint64)> &progress, QString *error);
 
-    QString m_clientId, m_tenant;
+    void saveToken();
+
+    QString m_id;
     QString m_access, m_refresh;
     QDateTime m_expires;
     mutable QMutex m_mutex;

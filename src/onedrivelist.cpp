@@ -30,21 +30,38 @@ void OneDriveList::setAccount(Account *account) {
     s_account = account;
 }
 
-QHash<QString, QVector<OneDriveList::Entry>> &OneDriveList::cache() {
-    static QHash<QString, QVector<Entry>> listings;
-    return listings;
+QHash<QString, QVector<OneDriveList::Entry>> &OneDriveList::cache() const {
+    static QHash<QString, QHash<QString, QVector<Entry>>> listings;
+    return listings[m_accountId];
 }
 
 OneDriveList::OneDriveList(QObject *parent) : QAbstractListModel(parent), m_account(s_account) {
     Q_ASSERT(m_account);
-    connect(m_account, &Account::stateChanged, this, [this] {
-        if (m_account->signedIn())
-            navigate(m_target);
-        else
-            clear();
-    });
-    if (m_account->signedIn())
+    m_accountId = m_account->activeId();
+    connect(m_account, &Account::stateChanged, this, &OneDriveList::accountStateChanged);
+    m_signedIn = m_account->signedIn();
+    if (m_signedIn)
         navigate(m_target);
+}
+
+// Another account keeps its own place: this tab goes back to wherever it was
+// in that account, or its root.
+void OneDriveList::accountStateChanged() {
+    const QString id = m_account->activeId();
+    const bool signedIn = m_account->signedIn();
+    const bool switched = id != m_accountId;
+    if (switched) {
+        m_places.insert(m_accountId, m_target);
+        m_accountId = id;
+        m_target = m_places.value(id, "/");
+        emit accountChanged();
+        clear();
+    }
+    if (signedIn && (switched || !m_signedIn))
+        navigate(m_target);
+    else if (!signedIn && m_signedIn && !switched)
+        clear();
+    m_signedIn = signedIn;
 }
 
 int OneDriveList::rowCount(const QModelIndex &parent) const {
@@ -110,8 +127,10 @@ void OneDriveList::fetch(const QString &path) {
     if (path == m_target)
         setLoading(!cache().contains(path));
 
+    const QString account = m_accountId;
+    Graph *graph = Graph::forAccount(account);
     auto *watcher = new QFutureWatcher<Listing>(this);
-    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, path] {
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, path, account] {
         const Listing listing = watcher->result();
         watcher->deleteLater();
 
@@ -133,17 +152,18 @@ void OneDriveList::fetch(const QString &path) {
                 return a.isDir;
             return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
         });
-        received(path, entries, listing.error);
+        received(account, path, entries, listing.error);
     });
-    watcher->setFuture(QtConcurrent::run([path] {
+    watcher->setFuture(QtConcurrent::run([path, graph] {
         Listing listing;
-        listing.items = Graph::instance().children(path, &listing.error);
+        listing.items = graph->children(path, &listing.error);
         return listing;
     }));
 }
 
-void OneDriveList::received(const QString &path, const QVector<Entry> &entries, const QString &error) {
-    if (!m_account->signedIn())
+void OneDriveList::received(const QString &account, const QString &path, const QVector<Entry> &entries,
+                            const QString &error) {
+    if (account != m_accountId || !m_account->signedIn())
         return;
     if (error.isEmpty())
         cache().insert(path, entries);
@@ -209,15 +229,14 @@ void OneDriveList::prefetch() {
     m_prefetching = false;
 }
 
+// Empties the view; the target stays, to be shown once signed in.
 void OneDriveList::clear() {
-    cache().clear();
     m_prefetchQueue.clear();
     m_prefetching = false;
-    m_target = "/";
     setLoading(false);
     setError({});
-    if (m_path != "/") {
-        m_path = "/";
+    if (m_path != m_target) {
+        m_path = m_target;
         emit pathChanged();
     }
     beginResetModel();

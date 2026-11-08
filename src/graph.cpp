@@ -44,12 +44,54 @@ bool keyring(const QStringList &args, const QByteArray &input, QByteArray *outpu
     return true;
 }
 
-const QStringList kKeyAttributes = {"service", "omadrive", "kind", "refresh-token"};
+// Before accounts had ids the one token was saved without "account".
+// secret-tool matches items having at least the given attributes, so the
+// accounts' tokens use another "kind" for these never to match them.
+const QStringList kLegacyAttributes = {"service", "omadrive", "kind", "refresh-token"};
 
-void forgetToken() {
-    QStringList args = {"clear"};
-    args += kKeyAttributes;
-    keyring(args, {}, nullptr);
+QStringList keyAttributes(const QString &id) {
+    return {"service", "omadrive", "kind", "account-token", "account", id};
+}
+
+// Where early multi-account builds kept an account's token.
+QStringList oldKeyAttributes(const QString &id) {
+    return kLegacyAttributes + QStringList{"account", id};
+}
+
+void forgetToken(const QString &id) {
+    if (!id.isEmpty())
+        keyring(QStringList{"clear"} + keyAttributes(id), {}, nullptr);
+}
+
+struct Config {
+    QString clientId, tenant = "common";
+};
+
+const Config &config() {
+    static const Config loaded = [] {
+        Config c;
+        QFile file(Graph::configPath());
+        if (file.open(QIODevice::ReadOnly)) {
+            const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+            c.clientId = json.value("clientId").toString().trimmed();
+            c.tenant = json.value("tenant").toString("common").trimmed();
+        }
+        if (c.tenant.isEmpty())
+            c.tenant = "common";
+        return c;
+    }();
+    return loaded;
+}
+
+struct Registry {
+    QMutex mutex;
+    QHash<QString, Graph *> graphs;
+    QString active;
+};
+
+Registry &registry() {
+    static Registry r;
+    return r;
 }
 
 // One network thread and manager for the whole app, so HTTP connections stay
@@ -98,29 +140,44 @@ QJsonObject GraphReply::json() const {
     return QJsonDocument::fromJson(body).object();
 }
 
-Graph &Graph::instance() {
-    static Graph graph;
+Graph *Graph::forAccount(const QString &id) {
+    Registry &r = registry();
+    QMutexLocker lock(&r.mutex);
+    Graph *&graph = r.graphs[id];
+    if (!graph)
+        graph = new Graph(id);
     return graph;
 }
 
-Graph::Graph() {
-    QFile file(configPath());
-    if (file.open(QIODevice::ReadOnly)) {
-        const QJsonObject config = QJsonDocument::fromJson(file.readAll()).object();
-        m_clientId = config.value("clientId").toString().trimmed();
-        m_tenant = config.value("tenant").toString("common").trimmed();
+Graph &Graph::active() {
+    QString id;
+    {
+        QMutexLocker lock(&registry().mutex);
+        id = registry().active;
     }
-    if (m_tenant.isEmpty())
-        m_tenant = "common";
+    // With no account this is an empty Graph whose calls say "not signed in".
+    return *forAccount(id);
 }
 
-QString Graph::configPath() const {
+void Graph::setActive(const QString &id) {
+    QMutexLocker lock(&registry().mutex);
+    registry().active = id;
+}
+
+Graph::Graph(const QString &id) : m_id(id) {}
+
+bool Graph::configured() {
+    return !config().clientId.isEmpty();
+}
+
+QString Graph::configPath() {
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omadrive/auth.json";
 }
 
-QString Graph::authorizeUrl(const QString &redirect, const QString &challenge, const QString &state) const {
+QString Graph::authorizeUrl(const QString &redirect, const QString &challenge, const QString &state,
+                            const QString &loginHint) {
     QUrlQuery query;
-    query.addQueryItem("client_id", m_clientId);
+    query.addQueryItem("client_id", config().clientId);
     query.addQueryItem("response_type", "code");
     query.addQueryItem("redirect_uri", redirect);
     query.addQueryItem("response_mode", "query");
@@ -128,8 +185,11 @@ QString Graph::authorizeUrl(const QString &redirect, const QString &challenge, c
     query.addQueryItem("code_challenge", challenge);
     query.addQueryItem("code_challenge_method", "S256");
     query.addQueryItem("state", state);
-    query.addQueryItem("prompt", "select_account");
-    return QString("https://login.microsoftonline.com/%1/oauth2/v2.0/authorize?").arg(m_tenant)
+    if (loginHint.isEmpty())
+        query.addQueryItem("prompt", "select_account");
+    else
+        query.addQueryItem("login_hint", loginHint);
+    return QString("https://login.microsoftonline.com/%1/oauth2/v2.0/authorize?").arg(config().tenant)
         + query.toString(QUrl::FullyEncoded);
 }
 
@@ -198,13 +258,13 @@ GraphReply Graph::send(const QByteArray &verb, const QUrl &url, const QByteArray
 // Caller holds the mutex.
 bool Graph::tokenRequest(const QList<QPair<QString, QString>> &form, QString *error) {
     QUrlQuery query;
-    query.addQueryItem("client_id", m_clientId);
+    query.addQueryItem("client_id", config().clientId);
     query.addQueryItem("scope", kScope);
     for (const auto &item : form)
         query.addQueryItem(item.first, item.second);
 
     const GraphReply reply = send(
-        "POST", QUrl(QString("https://login.microsoftonline.com/%1/oauth2/v2.0/token").arg(m_tenant)),
+        "POST", QUrl(QString("https://login.microsoftonline.com/%1/oauth2/v2.0/token").arg(config().tenant)),
         query.toString(QUrl::FullyEncoded).toUtf8(), {{"Content-Type", "application/x-www-form-urlencoded"}});
 
     const QJsonObject json = reply.json();
@@ -215,7 +275,7 @@ bool Graph::tokenRequest(const QList<QPair<QString, QString>> &form, QString *er
         // A revoked or expired sign-in cannot be repaired by retrying.
         if (json.value("error").toString() == "invalid_grant") {
             m_refresh.clear();
-            forgetToken();
+            forgetToken(m_id);
         }
         *error = message;
         return false;
@@ -226,11 +286,16 @@ bool Graph::tokenRequest(const QList<QPair<QString, QString>> &form, QString *er
     const QString refresh = json.value("refresh_token").toString();
     if (!refresh.isEmpty()) {
         m_refresh = refresh;
-        QStringList args = {"store", "--label=Omadrive OneDrive sign-in"};
-        args += kKeyAttributes;
-        keyring(args, refresh.toUtf8(), nullptr);
+        saveToken();
     }
     return true;
+}
+
+// Caller holds the mutex.
+void Graph::saveToken() {
+    if (m_id.isEmpty() || m_refresh.isEmpty())
+        return;
+    keyring(QStringList{"store", "--label=Omadrive OneDrive sign-in"} + keyAttributes(m_id), m_refresh.toUtf8(), nullptr);
 }
 
 bool Graph::exchangeCode(const QString &code, const QString &verifier, const QString &redirect, QString *error) {
@@ -241,20 +306,66 @@ bool Graph::exchangeCode(const QString &code, const QString &verifier, const QSt
 
 bool Graph::restore(QString *error) {
     QMutexLocker lock(&m_mutex);
+    if (m_id.isEmpty())
+        return false;
     QByteArray stored;
-    QStringList args = {"lookup"};
-    args += kKeyAttributes;
-    if (!keyring(args, {}, &stored) || stored.trimmed().isEmpty())
+    bool moved = false;
+    if (!keyring(QStringList{"lookup"} + keyAttributes(m_id), {}, &stored) || stored.trimmed().isEmpty()) {
+        if (!keyring(QStringList{"lookup"} + oldKeyAttributes(m_id), {}, &stored) || stored.trimmed().isEmpty())
+            return false;
+        moved = true;
+    }
+    m_refresh = QString::fromUtf8(stored.trimmed());
+    const bool ok = tokenRequest({{"grant_type", "refresh_token"}, {"refresh_token", m_refresh}}, error);
+    if (moved && (ok || m_refresh.isEmpty())) {
+        saveToken();
+        keyring(QStringList{"clear"} + oldKeyAttributes(m_id), {}, nullptr);
+    }
+    return ok;
+}
+
+bool Graph::restoreLegacy(QString *error) {
+    QMutexLocker lock(&m_mutex);
+    QByteArray stored;
+    if (!keyring(QStringList{"lookup"} + kLegacyAttributes, {}, &stored) || stored.trimmed().isEmpty())
         return false;
     m_refresh = QString::fromUtf8(stored.trimmed());
-    return tokenRequest({{"grant_type", "refresh_token"}, {"refresh_token", m_refresh}}, error);
+    const bool ok = tokenRequest({{"grant_type", "refresh_token"}, {"refresh_token", m_refresh}}, error);
+    if (!ok && m_refresh.isEmpty())
+        clearLegacy();  // rejected for good
+    return ok;
+}
+
+bool Graph::hasLegacy() {
+    QByteArray stored;
+    return keyring(QStringList{"lookup"} + kLegacyAttributes, {}, &stored) && !stored.trimmed().isEmpty();
+}
+
+void Graph::clearLegacy() {
+    keyring(QStringList{"clear"} + kLegacyAttributes, {}, nullptr);
+}
+
+void Graph::adopt(Graph &signedIn) {
+    QString access, refresh;
+    QDateTime expires;
+    {
+        QMutexLocker lock(&signedIn.m_mutex);
+        access = signedIn.m_access;
+        refresh = signedIn.m_refresh;
+        expires = signedIn.m_expires;
+    }
+    QMutexLocker lock(&m_mutex);
+    m_access = access;
+    m_refresh = refresh;
+    m_expires = expires;
+    saveToken();
 }
 
 void Graph::signOut() {
     QMutexLocker lock(&m_mutex);
     m_access.clear();
     m_refresh.clear();
-    forgetToken();
+    forgetToken(m_id);
 }
 
 bool Graph::signedIn() const {
@@ -275,11 +386,45 @@ QString Graph::accessToken(QString *error) {
     return m_access;
 }
 
-QString Graph::displayName() {
-    const GraphReply reply = call("GET", "https://graph.microsoft.com/v1.0/me?$select=displayName,userPrincipalName");
-    const QJsonObject json = reply.json();
-    const QString name = json.value("displayName").toString();
-    return name.isEmpty() ? json.value("userPrincipalName").toString() : name;
+Profile Graph::profile(QString *error) {
+    Profile p;
+    const GraphReply me = call("GET", "https://graph.microsoft.com/v1.0/me?$select=id,displayName,userPrincipalName,mail");
+    if (!me.ok()) {
+        *error = me.error;
+        return p;
+    }
+    const QJsonObject json = me.json();
+    p.id = json.value("id").toString();
+    p.email = json.value("mail").toString();
+    if (p.email.isEmpty())
+        p.email = json.value("userPrincipalName").toString();
+    p.name = json.value("displayName").toString();
+    if (p.name.isEmpty())
+        p.name = p.email;
+
+    const GraphReply drive = call("GET", "https://graph.microsoft.com/v1.0/me/drive?$select=driveType");
+    p.business = drive.json().value("driveType").toString() == "business";
+    if (p.business) {
+        const GraphReply org = call("GET", "https://graph.microsoft.com/v1.0/organization?$select=displayName");
+        const QJsonArray orgs = org.json().value("value").toArray();
+        if (!orgs.isEmpty())
+            p.org = orgs.first().toObject().value("displayName").toString();
+        if (p.org.isEmpty())
+            p.org = p.email.section('@', 1).section('.', 0, 0).toUpper();
+    }
+    if (p.id.isEmpty())
+        *error = tr("Microsoft did not say who signed in");
+    return p;
+}
+
+QByteArray Graph::photo() {
+    for (const char *url : {"https://graph.microsoft.com/v1.0/me/photos/96x96/$value",
+                            "https://graph.microsoft.com/v1.0/me/photo/$value"}) {
+        const GraphReply reply = call("GET", url);
+        if (reply.status == 200 && !reply.body.isEmpty())
+            return reply.body;
+    }
+    return {};
 }
 
 GraphReply Graph::call(const QByteArray &verb, const QString &urlOrPath, const QByteArray &body,

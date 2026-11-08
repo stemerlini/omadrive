@@ -33,6 +33,13 @@ QtObject {
 
     property Connections watcher: Connections {
         target: tab.folder
+        ignoreUnknownSignals: true  // only OneDrive lists have accounts
+        // Another account's folders: its history does not apply here.
+        function onAccountChanged() {
+            tab.back = []
+            tab.forward = []
+            tab.here = ""
+        }
         function onPathChanged() {
             var path = tab.folder.path
             if (!tab.stepping && tab.here !== "" && path !== tab.here) {
