@@ -11,9 +11,13 @@
 #include <QTextStream>
 #include <QUrl>
 
+#include <sys/xattr.h>
+
 #include "graph.h"
 #include "mirror.h"
+#include "mount.h"
 #include "recent.h"
+#include "sync.h"
 
 // Every command prints a single JSON object. Reusing Graph means these share
 // the app's sign-in, keyring tokens and work-account safety.
@@ -397,6 +401,96 @@ int cmdShare(const QString &path, bool edit, const QString &scope, const QString
     return okWith({{"account", account.value("id")}, {"link", link}, {"canEdit", edit}});
 }
 
+// The sync state the mount reports for a file (see omadrive mount).
+QJsonObject mountInfo(const QString &localPath) {
+    const QByteArray path = QFile::encodeName(localPath);
+    QByteArray value(64 * 1024, '\0');
+    const ssize_t n = ::getxattr(path.constData(), "user.omadrive.info", value.data(), value.size());
+    return n > 0 ? QJsonDocument::fromJson(value.left(n)).object() : QJsonObject();
+}
+
+// path: a file in a mounted folder, or a OneDrive path of the account.
+int cmdStatus(const QString &path, const QString &wanted) {
+    if (path.isEmpty())
+        return fail("Usage: omadrive agent status <path> [--account <id|email>]");
+    if (QFileInfo(path).isAbsolute()) {
+        const QJsonObject info = mountInfo(path);
+        if (!info.isEmpty())
+            return okWith(info);
+    }
+    QString error;
+    const QJsonObject account = resolveAccounts(wanted, &error);
+    if (account.isEmpty())
+        return fail(error);
+    const QString id = account.value("id").toString();
+    QString remote = normalisePath(path);
+    for (const QString &root : {mountedAt(id), account.value("mirror").toString()}) {
+        const QString clean = QDir::cleanPath(root);
+        if (!root.isEmpty() && (path == clean || path.startsWith(clean + "/"))) {
+            remote = normalisePath(path.mid(clean.size()));
+            break;
+        }
+    }
+    QJsonObject info;
+    const QString mounted = mountedAt(id);
+    if (!mounted.isEmpty()) {
+        info = mountInfo(mounted + remote);
+    } else {
+        // Not mounted: what the last mount saved.
+        const QString cache = SyncCore::cacheDirFor(id);
+        if (!QFile::exists(cache + "/state.bin"))
+            return fail("That account's folder has never been mounted");
+        SyncCore core(nullptr, cache, {});
+        core.load();
+        info = core.info(remote.isEmpty() ? "/" : remote);
+        if (!info.isEmpty())
+            info.insert("pendingUploads", core.status().value("pending"));
+    }
+    if (info.isEmpty())
+        return fail(QString("No such item: %1").arg(path));
+    info.insert("account", id);
+    info.insert("mounted", !mounted.isEmpty());
+    return okWith(info);
+}
+
+// What each mount (or the one asked for) still has to upload, and its conflicts.
+int cmdPending(const QString &wanted) {
+    QString error;
+    QStringList ids = accountIds();
+    if (!wanted.isEmpty()) {
+        const QJsonObject account = resolveAccounts(wanted, &error);
+        if (account.isEmpty())
+            return fail(error);
+        ids = {account.value("id").toString()};
+    }
+    QJsonArray accounts;
+    for (const QString &id : std::as_const(ids)) {
+        QFile file(SyncCore::cacheDirFor(id) + "/status.json");
+        if (!file.open(QIODevice::ReadOnly))
+            continue;
+        QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        json.insert("account", id);
+        json.insert("mounted", !mountedAt(id).isEmpty());
+        json.remove("pid");
+        accounts.append(json);
+    }
+    return okWith({{"accounts", accounts}});
+}
+
+// Asks a mount to look for OneDrive changes now.
+int cmdRefresh(const QString &wanted) {
+    QString error;
+    const QJsonObject account = resolveAccounts(wanted, &error);
+    if (account.isEmpty())
+        return fail(error);
+    const QString mounted = mountedAt(account.value("id").toString());
+    if (mounted.isEmpty())
+        return fail("That account's folder is not mounted");
+    if (::setxattr(QFile::encodeName(mounted).constData(), "user.omadrive.refresh", "1", 1, 0) != 0)
+        return fail(QString("Cannot reach the mount: %1").arg(QString::fromLocal8Bit(strerror(errno))));
+    return okWith({{"account", account.value("id")}, {"mountpoint", mounted}});
+}
+
 // --account/-a <id|email>, --dest <dir>, --scope <s>, --edit; the rest are positionals.
 struct Args {
     QStringList positional;
@@ -426,9 +520,20 @@ QString pos(const Args &a, int i) { return i < a.positional.size() ? a.positiona
 
 }  // namespace
 
+QJsonObject resolveAccount(const QString &wanted, QString *error) {
+    return resolveAccounts(wanted, error);
+}
+
+QStringList accountIds() {
+    QStringList ids;
+    for (const QJsonValue &v : accountsFile().value("accounts").toArray())
+        ids << v.toObject().value("id").toString();
+    return ids;
+}
+
 int runAgent(const QStringList &rawArgs) {
     if (rawArgs.isEmpty())
-        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share> ...");
+        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share|status|pending|refresh> ...");
     const QString command = rawArgs.first();
     const Args a = parse(rawArgs.mid(1));
 
@@ -456,5 +561,11 @@ int runAgent(const QStringList &rawArgs) {
         return cmdTrash(pos(a, 0), a.account);
     if (command == "share")
         return cmdShare(pos(a, 0), a.edit, a.scope, a.account);
+    if (command == "status")
+        return cmdStatus(pos(a, 0), a.account);
+    if (command == "pending")
+        return cmdPending(a.account);
+    if (command == "refresh")
+        return cmdRefresh(a.account);
     return fail(QString("Unknown command: %1").arg(command));
 }
