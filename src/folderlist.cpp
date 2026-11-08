@@ -74,18 +74,9 @@ void FolderList::up() {
         setPath(parent);
 }
 
-QStringList FolderList::foldersIn(const QString &path) const {
-    QDir::Filters filters = QDir::Dirs | QDir::NoDotAndDotDot;
-    if (m_showHidden)
-        filters |= QDir::Hidden;
-    return QDir(path).entryList(filters, QDir::Name | QDir::IgnoreCase);
-}
-
 void FolderList::refresh() {
     if (m_path.isEmpty())
         return;
-    emit foldersChanged();
-
     QDir::Filters filters = QDir::AllEntries | QDir::NoDotAndDotDot | QDir::System;
     if (m_showHidden)
         filters |= QDir::Hidden;

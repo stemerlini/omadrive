@@ -377,6 +377,9 @@ Rectangle {
             remote: pane.remote
             onOpened: path => { pane.focusRequested(); pane.openFolder(path) }
             onOpenedInNewTab: path => pane.openInNewTab(path)
+            currentPath: pane.currentItemPath
+            onSelected: path => { pane.focusRequested(); pane.select(pane.folder.indexOfPath(path), 0); pane.focusList() }
+            onActivated: path => { pane.focusRequested(); pane.select(pane.folder.indexOfPath(path), 0); pane.openCurrent() }
         }
 
         ListView {

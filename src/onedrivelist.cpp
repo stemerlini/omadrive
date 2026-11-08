@@ -90,26 +90,7 @@ void OneDriveList::up() {
         navigate(Graph::parentPath(m_target));
 }
 
-QStringList OneDriveList::foldersIn(const QString &path) {
-    QStringList names;
-    const auto it = cache().constFind(path);
-    if (it != cache().constEnd()) {
-        for (const Entry &e : *it)
-            if (e.isDir)
-                names << e.name;
-        return names;
-    }
-    // Asked once, so a folder that fails to load is not fetched in a loop.
-    if (m_account->signedIn() && !m_columnRequested.contains(path)) {
-        m_columnRequested.insert(path);
-        m_columnPending.insert(path);
-        fetch(path);
-    }
-    return names;
-}
-
 void OneDriveList::refresh() {
-    m_columnRequested.clear();
     if (m_account->signedIn())
         fetch(m_target);
 }
@@ -164,11 +145,8 @@ void OneDriveList::fetch(const QString &path) {
 void OneDriveList::received(const QString &path, const QVector<Entry> &entries, const QString &error) {
     if (!m_account->signedIn())
         return;
-    const bool forColumn = m_columnPending.remove(path);
-    if (error.isEmpty()) {
+    if (error.isEmpty())
         cache().insert(path, entries);
-        emit foldersChanged();
-    }
 
     if (path == m_target) {
         setLoading(false);
@@ -177,8 +155,6 @@ void OneDriveList::received(const QString &path, const QVector<Entry> &entries, 
         else
             show(path, entries);
     }
-    if (forColumn && path != m_target)
-        return;
     // Prefetch around the folder being viewed, and keep draining the queue.
     if (m_prefetching || (error.isEmpty() && path == m_target))
         prefetch();
@@ -235,9 +211,6 @@ void OneDriveList::prefetch() {
 
 void OneDriveList::clear() {
     cache().clear();
-    m_columnRequested.clear();
-    m_columnPending.clear();
-    emit foldersChanged();
     m_prefetchQueue.clear();
     m_prefetching = false;
     m_target = "/";

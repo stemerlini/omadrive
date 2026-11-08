@@ -2,7 +2,6 @@
 
 #include <QAbstractListModel>
 #include <QDateTime>
-#include <QSet>
 #include <QVector>
 
 class Account;
@@ -38,15 +37,11 @@ public:
     Q_INVOKABLE int indexOfPath(const QString &path) const;
     // Re-reads the local mirror so the cloud icons follow a download.
     Q_INVOKABLE void recheck();
-    // Subfolder names of any folder, for the column tree. A folder not seen
-    // yet is fetched, and foldersChanged follows.
-    Q_INVOKABLE QStringList foldersIn(const QString &path);
 
 signals:
     void pathChanged();
     void errorChanged();
     void loadingChanged();
-    void foldersChanged();
 
 private:
     struct Entry {
@@ -74,5 +69,4 @@ private:
     // once and is then checked against OneDrive in the background.
     static QHash<QString, QVector<Entry>> &cache();
     QStringList m_prefetchQueue;
-    QSet<QString> m_columnRequested, m_columnPending;
 };

@@ -2,29 +2,27 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 
-// One Commander's folder columns: the current folder is a full column of its
-// subfolders; each folder above it on the path is a thin strip with its name
-// written top to bottom. A click opens that folder or strip; middle-click
-// opens it in a new tab.
+// One Commander's folder columns: each folder above the current one is a thin
+// strip with its name turned 90°, and the current folder is a full column of
+// its folders and files that follows the highlight in the list. A click on a
+// strip opens that folder; middle-click opens it in a new tab.
 Rectangle {
     id: tree
 
     required property var folder
     property bool remote: false
+    // The item highlighted in the list, highlighted here too.
+    property string currentPath: ""
     signal opened(string path)
     signal openedInNewTab(string path)
+    signal selected(string path)
+    signal activated(string path)
 
     readonly property var segments: folder.path.split("/").filter(function (s) { return s !== "" })
-    property int revision: 0
 
     color: "#101013"
     radius: theme.radius
     clip: true
-
-    Connections {
-        target: tree.folder
-        function onFoldersChanged() { tree.revision++ }
-    }
 
     function pathOf(depth) { return "/" + segments.slice(0, depth).join("/") }
 
@@ -45,26 +43,26 @@ Rectangle {
             id: column
             required property int index
             readonly property string path: tree.pathOf(index)
-            readonly property string next: index < tree.segments.length ? tree.segments[index] : ""
             readonly property bool thin: index < tree.segments.length
             readonly property string name: index === 0 ? (tree.remote ? "OneDrive" : "/") : tree.segments[index - 1]
-            readonly property var names: { tree.revision; return thin ? [] : tree.folder.foldersIn(path) }
 
-            width: thin ? 24 : 220
+            width: thin ? 24 : 280
             height: ListView.view.height - 8
             radius: Math.min(4, theme.radius)
             color: !thin ? "#16161a" : stripHover.hovered ? "#1f1f23" : "transparent"
             border.width: 1
             border.color: "#1f1f23"
 
+            // Turned 90° clockwise, so it reads from the top down.
             Text {
                 visible: column.thin
-                anchors.fill: parent
-                anchors.topMargin: 6
-                horizontalAlignment: Text.AlignHCenter
-                text: column.name.split("").join("\n")
-                lineHeight: 0.92
-                clip: true
+                anchors.centerIn: parent
+                width: parent.height - 12
+                height: parent.width
+                rotation: 90
+                verticalAlignment: Text.AlignVCenter
+                text: column.name
+                elide: Text.ElideRight
                 font.pixelSize: 12
                 color: stripHover.hovered ? theme.accent : "#c0c0c6"
             }
@@ -102,48 +100,52 @@ Rectangle {
                 anchors.margins: 2
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                model: column.names
+                model: column.thin ? null : tree.folder
+                currentIndex: column.thin ? -1 : tree.folder.indexOfPath(tree.currentPath)
+                highlightMoveDuration: 0
+                highlightFollowsCurrentItem: false
+                onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                onModelChanged: Qt.callLater(function () {
-                    var i = column.names.indexOf(column.next)
-                    if (i >= 0)
-                        entries.positionViewAtIndex(i, ListView.Center)
-                })
 
                 delegate: Rectangle {
                     id: entry
-                    required property string modelData
-                    readonly property bool onPath: modelData === column.next
+                    required property int index
+                    required property string name
+                    required property string path
+                    required property bool isDir
+                    readonly property bool current: path === tree.currentPath
                     width: ListView.view.width
                     height: 24
                     radius: Math.min(4, theme.radius)
-                    color: onPath ? Qt.alpha(theme.accent, 0.22) : entryHover.hovered ? "#1c1c20" : "transparent"
+                    color: current ? Qt.alpha(theme.accent, 0.22) : entryHover.hovered ? "#1c1c20" : "transparent"
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
                         x: 8
                         width: parent.width - 16
-                        text: entry.modelData
+                        text: entry.name + (entry.isDir ? "/" : "")
                         elide: Text.ElideRight
-                        color: entry.onPath ? "#e6e6e6" : "#b0b0b6"
+                        color: entry.current ? "#e6e6e6" : entry.isDir ? theme.accent : "#b0b0b6"
                     }
                     HoverHandler { id: entryHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                         onTapped: (eventPoint, button) => {
-                            var target = (column.path === "/" ? "" : column.path) + "/" + entry.modelData
-                            if (button === Qt.MiddleButton)
-                                tree.openedInNewTab(target)
-                            else
-                                tree.opened(target)
+                            if (button === Qt.MiddleButton) {
+                                if (entry.isDir)
+                                    tree.openedInNewTab(entry.path)
+                            } else {
+                                tree.selected(entry.path)
+                            }
                         }
+                        onDoubleTapped: tree.activated(entry.path)
                     }
                 }
             }
 
             Label {
                 anchors.centerIn: parent
-                visible: !column.thin && column.names.length === 0
-                text: qsTr("No folders")
+                visible: !column.thin && entries.count === 0
+                text: qsTr("Empty folder")
                 font.pixelSize: 11
                 color: "#5a5a60"
             }
