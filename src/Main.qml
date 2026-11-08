@@ -379,6 +379,7 @@ ApplicationWindow {
         else if (action === "copy") copy()
         else if (action === "move") move()
         else if (action === "rename") askRename()
+        else if (action === "newMenu") newPopup.open()
         else if (action.startsWith("new:")) askNew(Number(action.slice(4)))
         else if (action === "trash") askTrash()
         else if (action === "preview") togglePreview()
@@ -486,7 +487,7 @@ ApplicationWindow {
     }
 
     // Plain-letter shortcuts must not fire while a dialog takes text.
-    readonly property bool typing: prompt.visible || leftPane.editingPath || rightPane.editingPath
+    readonly property bool typing: prompt.visible || newPopup.visible || leftPane.editingPath || rightPane.editingPath
 
     // Keys follow Windows and One Commander.
     Shortcut { sequences: ["?", "Ctrl+/"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: help.visible ? help.close() : help.open() }
@@ -504,7 +505,7 @@ ApplicationWindow {
     Shortcut { sequences: ["Ctrl+L", "Alt+D"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.editPath() }
     Shortcut { sequence: "Alt+C"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.copy() }
     Shortcut { sequence: "Alt+M"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.move() }
-    Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.openNewMenu() }
+    Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: newPopup.open() }
     Shortcut { sequence: "F2"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askRename() }
     Shortcut { sequence: "Delete"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askTrash() }
     Shortcut { sequences: ["Ctrl+R", "F5"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.folder.refresh() }
@@ -684,7 +685,24 @@ ApplicationWindow {
         anchors.centerIn: Overlay.overlay
         modal: true
         width: Math.min(win.width - 40, 460)
+        padding: 16
+        topPadding: 4
         standardButtons: Dialog.Ok | Dialog.Cancel
+
+        background: Rectangle { color: "#18181b"; radius: theme.radius; border.color: "#2a2a2e" }
+        header: Label {
+            text: prompt.title
+            padding: 16
+            bottomPadding: 4
+            font.bold: true
+            color: "#e6e6e6"
+        }
+        footer: DialogButtonBox {
+            standardButtons: prompt.standardButtons
+            background: null
+            onAccepted: prompt.accept()
+            onRejected: prompt.reject()
+        }
 
         function ask(newAction, newTitle, message, input, initial) {
             action = newAction
@@ -718,6 +736,103 @@ ApplicationWindow {
         }
     }
 
+    // Ctrl+N: pick what to create, by arrows and Enter, the underlined
+    // letter, or a click.
+    Popup {
+        id: newPopup
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        padding: 10
+        width: 300
+        property int chosen: -1
+
+        function choose(index) {
+            chosen = index
+            close()
+        }
+
+        onOpened: { chosen = -1; kindList.currentIndex = 0; kindList.forceActiveFocus() }
+        // The name prompt opens only once this has closed, so it keeps the focus.
+        onClosed: chosen >= 0 ? win.askNew(chosen) : win.activePane.focusList()
+
+        background: Rectangle { color: "#18181b"; radius: theme.radius; border.color: "#2a2a2e" }
+
+        contentItem: Column {
+            spacing: 6
+            Label {
+                leftPadding: 8
+                text: qsTr("New")
+                font.bold: true
+                color: "#9a9aa0"
+            }
+            ListView {
+                id: kindList
+                width: parent.width
+                height: contentHeight
+                interactive: false
+                keyNavigationEnabled: true
+                highlightMoveDuration: 0
+                model: win.activePane.newKinds
+                highlight: Rectangle {
+                    color: Qt.alpha(theme.accent, 0.22)
+                    border.color: Qt.alpha(theme.accent, 0.7)
+                    radius: Math.min(6, theme.radius)
+                }
+                Keys.onReturnPressed: newPopup.choose(currentIndex)
+                Keys.onEnterPressed: newPopup.choose(currentIndex)
+                Keys.onPressed: event => {
+                    if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier))
+                        return
+                    for (var i = 0; i < count; ++i) {
+                        var label = model[i].label
+                        if (event.key === label.charAt(label.indexOf("&") + 1).toUpperCase().charCodeAt(0)) {
+                            event.accepted = true
+                            newPopup.choose(i)
+                            return
+                        }
+                    }
+                }
+
+                delegate: Item {
+                    id: kind
+                    required property var modelData
+                    required property int index
+                    readonly property bool current: ListView.isCurrentItem
+                    readonly property int key: modelData.label.indexOf("&")
+                    width: ListView.view.width
+                    height: 38
+
+                    Image {
+                        id: kindIcon
+                        x: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: "qrc:/icons/" + kind.modelData.icon + ".svg"
+                        sourceSize: Qt.size(20, 20)
+                        opacity: kind.current ? 1 : 0.7
+                    }
+                    Label {
+                        anchors.left: kindIcon.right
+                        anchors.leftMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        textFormat: Text.StyledText
+                        text: kind.modelData.label.slice(0, kind.key) + "<u>" + kind.modelData.label.charAt(kind.key + 1) + "</u>"
+                              + kind.modelData.label.slice(kind.key + 2)
+                        color: kind.current ? theme.accent : "#e6e6e6"
+                    }
+                    Label {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: kind.modelData.label.charAt(kind.key + 1).toUpperCase()
+                        color: "#5a5a60"
+                    }
+                    HoverHandler { onHoveredChanged: if (hovered) kindList.currentIndex = kind.index }
+                    TapHandler { onTapped: newPopup.choose(kind.index) }
+                }
+            }
+        }
+    }
+
     Popup {
         id: help
         anchors.centerIn: Overlay.overlay
@@ -742,7 +857,7 @@ ApplicationWindow {
                     ["Ctrl+1…9", qsTr("Go to tab")],
                     ["Middle-click", qsTr("Folder: open in new tab; tab: close")],
                     ["Ctrl+Shift+N", qsTr("New window")],
-                    ["` / Ctrl+B", qsTr("Show or hide folder columns")],
+                    ["` / Ctrl+B", qsTr("Folder columns or thin path strips")],
                     ["Enter / →", qsTr("Open folder or file")],
                     ["Backspace / Alt+↑", qsTr("Parent folder")],
                     ["Alt+← / Alt+→", qsTr("Back / forward")],

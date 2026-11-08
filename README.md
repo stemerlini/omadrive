@@ -1,6 +1,6 @@
 # Omadrive
 
-Tabbed file manager for Omarchy (C++ / Qt Quick) for local folders and OneDrive (through Microsoft Graph), modelled on One Commander. One window, one pane; `Tab` flips between this device and OneDrive, and `Ctrl+\` opens a second pane beside it for copying. Above the files, folder columns (One Commander's Miller columns) show every folder on the way to the current one; hide them with `` ` `` or `Ctrl+B`. Tabs, the split and the highlighted files are remembered in `~/.config/omadrive/tabs.conf`.
+Tabbed file manager for Omarchy (C++ / Qt Quick) for local folders and OneDrive (through Microsoft Graph), modelled on One Commander. One window, one pane; `Tab` flips between this device and OneDrive, and `Ctrl+\` opens a second pane beside it for copying. Above the files, folder columns (One Commander's Miller columns) show every folder on the way to the current one; collapse them with `` ` `` or `Ctrl+B` into thin strips beside the list, one per folder with its name written top to bottom; click a strip to go there. Tabs, the split and the highlighted files are remembered in `~/.config/omadrive/tabs.conf`.
 
 Keys follow Windows and One Commander:
 

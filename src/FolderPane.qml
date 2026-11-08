@@ -43,13 +43,12 @@ Rectangle {
 
     // What Ctrl+N can create; Main.qml asks for the name and makes it.
     readonly property var newKinds: [
-        { label: qsTr("&Folder"), name: qsTr("New folder"), folder: true },
-        { label: qsTr("&Text document"), name: qsTr("New text document.txt"), content: "" },
-        { label: qsTr("&Markdown"), name: qsTr("New document.md"), content: "" },
-        { label: qsTr("&Shell script"), name: "script.sh", content: "#!/usr/bin/env bash\n\n", executable: true },
-        { label: qsTr("&Empty file"), name: qsTr("New file"), content: "" }
+        { label: qsTr("&Folder"), icon: "new-folder", name: qsTr("New folder"), folder: true },
+        { label: qsTr("&Text document"), icon: "new-text", name: qsTr("New text document.txt"), content: "" },
+        { label: qsTr("&Markdown"), icon: "new-markdown", name: qsTr("New document.md"), content: "" },
+        { label: qsTr("&Shell script"), icon: "new-script", name: "script.sh", content: "#!/usr/bin/env bash\n\n", executable: true },
+        { label: qsTr("&Empty file"), icon: "new-file", name: qsTr("New file"), content: "" }
     ]
-    function openNewMenu() { newMenu.popup(newButton, 0, newButton.height) }
 
     color: "#131316"
     radius: theme.radius
@@ -226,16 +225,6 @@ Rectangle {
     }
 
     Menu {
-        id: newMenu
-        Instantiator {
-            model: pane.newKinds
-            delegate: MenuItem { required property var modelData; required property int index; text: modelData.label; onTriggered: pane.menuAction("new:" + index) }
-            onObjectAdded: (index, object) => newMenu.insertItem(index, object)
-            onObjectRemoved: (index, object) => newMenu.removeItem(object)
-        }
-    }
-
-    Menu {
         id: menu
         MenuItem { text: qsTr("Open"); onTriggered: pane.menuAction("open") }
         MenuItem {
@@ -355,12 +344,12 @@ Rectangle {
                 implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus
                 icon.source: "qrc:/icons/tree.svg"; icon.width: 18; icon.height: 18
                 icon.color: pane.showTree ? theme.accent : "#c0c0c6"
-                ToolTip.text: pane.showTree ? qsTr("Hide folder columns (`)") : qsTr("Show folder columns (`)")
+                ToolTip.text: pane.showTree ? qsTr("Collapse folder columns (`)") : qsTr("Show folder columns (`)")
                 ToolTip.visible: hovered; ToolTip.delay: 500
                 onClicked: pane.treeToggled()
             }
             ToolButton { text: "↻"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Refresh (Ctrl+R)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.folder.refresh() } }
-            ToolButton { id: newButton; text: "+"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("New file or folder (Ctrl+N)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.openNewMenu() } }
+            ToolButton { id: newButton; text: "+"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("New file or folder (Ctrl+N)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.menuAction("newMenu") } }
         }
 
         Label {
@@ -390,9 +379,24 @@ Rectangle {
             onOpenedInNewTab: path => pane.openInNewTab(path)
         }
 
+        RowLayout {
+        SplitView.fillHeight: true
+        spacing: 6
+
+        PathStrips {
+            Layout.fillHeight: true
+            visible: !pane.showTree && !pane.needsSignIn
+            segments: pane.segments
+            remote: pane.remote
+            onOpened: depth => { pane.focusRequested(); pane.goTo(depth) }
+            onOpenedInNewTab: path => pane.openInNewTab(path)
+            onExpandRequested: pane.treeToggled()
+        }
+
         ListView {
             id: list
-            SplitView.fillHeight: true
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             clip: true
             model: pane.folder
             keyNavigationEnabled: true
@@ -534,6 +538,7 @@ Rectangle {
                     onDropped: drop => pane.handleDrop(drop, row.path)
                 }
             }
+        }
         }
 
         }
