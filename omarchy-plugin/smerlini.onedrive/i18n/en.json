@@ -1,0 +1,19 @@
+{
+  "title": "OneDrive",
+  "checking": "Checking OneDrive…",
+  "firstRun": "Reading your OneDrive for the first time; this takes a minute",
+  "upToDate": "Up to date · checked %1",
+  "noAccounts": "No OneDrive account yet",
+  "noAccountsHelp": "Sign in from omadrive to see your files here",
+  "notInstalled": "omadrive is not installed",
+  "noFiles": "No files yet",
+  "storage": "%1 of %2 used",
+  "onDevice": "On this device",
+  "onlineOnly": "Online",
+  "today": "Today %1",
+  "yesterday": "Yesterday %1",
+  "openApp": "Open omadrive",
+  "openAppHelp": "Browse, share and download your files",
+  "refresh": "Check now",
+  "readFailed": "Could not read OneDrive: %1"
+}

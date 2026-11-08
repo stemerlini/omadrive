@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMutex>
@@ -12,6 +13,7 @@
 namespace {
 QMutex s_mutex;
 QString s_root;
+QHash<QString, QString> s_roots;  // account id -> its folder
 QPointer<Mirror> s_mirror;
 }  // namespace
 
@@ -21,18 +23,29 @@ Mirror::Mirror(QObject *parent) : QObject(parent) {
 
 QString Mirror::root() {
     QMutexLocker lock(&s_mutex);
-    return s_root.isEmpty() ? configuredRoot() : s_root;
+    return s_root.isEmpty() ? personalRoot() : s_root;
 }
 
-void Mirror::setRoot(const QString &root) {
+QString Mirror::rootFor(const QString &account) {
+    QMutexLocker lock(&s_mutex);
+    return s_roots.value(account);
+}
+
+void Mirror::setRoots(const QHash<QString, QString> &roots, const QString &active) {
     {
         QMutexLocker lock(&s_mutex);
-        if (root == s_root)
+        s_roots = roots;
+        if (roots.value(active) == s_root)
             return;
-        s_root = root;
+        s_root = roots.value(active);
     }
     if (s_mirror)
         emit s_mirror->rootChanged();
+}
+
+QString Mirror::personalRoot() {
+    const QString configured = configuredRoot();
+    return configured.isEmpty() ? QDir::homePath() + "/OneDrive-Personal" : configured;
 }
 
 QString Mirror::configuredRoot() {
@@ -43,7 +56,7 @@ QString Mirror::configuredRoot() {
             configured = QJsonDocument::fromJson(file.readAll()).object().value("mirror").toString();
         if (configured.startsWith("~"))
             configured = QDir::homePath() + configured.mid(1);
-        return QDir::cleanPath(configured.isEmpty() ? QDir::homePath() + "/OneDrive" : configured);
+        return configured.isEmpty() ? QString() : QDir::cleanPath(configured);
     }();
     return path;
 }
@@ -63,8 +76,9 @@ bool Mirror::sameFile(const QString &localFile, qint64 size, const QDateTime &mo
         && qAbs(info.lastModified().secsTo(modified)) <= 2;
 }
 
-QString Mirror::state(const QString &remotePath, bool isDir, qint64 size, const QDateTime &modified) {
-    const QString local = localPath(remotePath);
+QString Mirror::state(const QString &root, const QString &remotePath, bool isDir, qint64 size,
+                      const QDateTime &modified) {
+    const QString local = localPath(root, remotePath);
     if (isDir)
         return QFileInfo(local).isDir() ? "local" : "online";
     if (!QFileInfo::exists(local))

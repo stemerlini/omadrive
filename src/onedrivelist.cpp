@@ -182,7 +182,7 @@ void OneDriveList::received(const QString &account, const QString &path, const Q
 
 void OneDriveList::show(const QString &path, QVector<Entry> entries) {
     for (Entry &e : entries)
-        e.cloud = Mirror::state(e.path, e.isDir, e.size, e.modified);
+        e.cloud = Mirror::state(Mirror::rootFor(m_accountId), e.path, e.isDir, e.size, e.modified);
     if (path != m_path) {
         m_path = path;
         emit pathChanged();

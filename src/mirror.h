@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
 #include <QObject>
 #include <QString>
 
@@ -16,17 +17,25 @@ class Mirror : public QObject {
 public:
     explicit Mirror(QObject *parent = nullptr);
 
-    static QString root();
-    static void setRoot(const QString &root);
-    // ~/OneDrive, or "mirror" from auth.json.
+    static QString root();  // the active account's
+    // Empty for an id that is not one of the accounts.
+    static QString rootFor(const QString &account);
+    static void setRoots(const QHash<QString, QString> &roots, const QString &active);
+    // "mirror" from auth.json, or empty.
     static QString configuredRoot();
+    // Where a personal account's files go: "mirror", or ~/OneDrive-Personal.
+    static QString personalRoot();
     static QString localPath(const QString &remotePath);
     static QString localPath(const QString &root, const QString &remotePath);
     // "online", "local" or "changed".
-    static QString state(const QString &remotePath, bool isDir, qint64 size, const QDateTime &modified);
+    static QString state(const QString &root, const QString &remotePath, bool isDir, qint64 size,
+                         const QDateTime &modified);
     static bool sameFile(const QString &localFile, qint64 size, const QDateTime &modified);
 
-    Q_INVOKABLE QString pathFor(const QString &remotePath) const { return localPath(remotePath); }
+    Q_INVOKABLE QString pathFor(const QString &account, const QString &remotePath) const {
+        const QString r = rootFor(account);
+        return r.isEmpty() ? QString() : localPath(r, remotePath);
+    }
 
 signals:
     void rootChanged();

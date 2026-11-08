@@ -32,13 +32,19 @@ Mouse: click selects, `Ctrl`+click toggles a mark, `Shift`+click marks a range, 
 
 Add a personal and a work or school account from the round picture at the top right; it shows the active account, and the others sit beside it, one click (or `Ctrl+Shift+A`) to switch. Every account stays signed in, its sign-in kept in the system keyring, and each tab remembers its folder per account. The list lives in `~/.config/omadrive/accounts.json`. A work account may need its IT admin to approve the app first.
 
+Every OneDrive operation is tied to the account its files were picked in: switching account while a copy, a cut, a drag or a dialog is pending never sends it to the other drive, and copying straight from one account to another is refused. Deleting from OneDrive, or moving files out of it, always asks first and names the drive (for example "OneDrive - SES").
+
 ## OneDrive mirror
 
-OneDrive files download into a mirror folder at the same path: `~/OneDrive` for the first personal account (or `"mirror"` in `~/.config/omadrive/auth.json`), and `~/OneDrive - <organisation>` for a work account, as Windows names them. Each OneDrive item shows whether it is online only (cloud), available on this device (check), or different from the local copy (arrows). Opening a OneDrive file downloads it to the mirror first. A local copy that is newer than OneDrive's is never replaced; an older one goes to the trash before the new download. Dragging out of OneDrive copies to wherever you drop.
+OneDrive files download into a mirror folder at the same path: `~/OneDrive-Personal` for a personal account (or `"mirror"` in `~/.config/omadrive/auth.json`), and `~/OneDrive-<domain>` for a work account, named after its email domain (`~/OneDrive-SES` for an `@ses.com` account). A `~/OneDrive` folder from earlier versions is renamed to `~/OneDrive-Personal`. Each OneDrive item shows whether it is online only (cloud), available on this device (check), or different from the local copy (arrows). Opening a OneDrive file downloads it to the mirror first. A local copy that is newer than OneDrive's is never replaced; an older one goes to the trash before the new download. Dragging out of OneDrive copies to wherever you drop.
 
 Right-click a OneDrive item for its cloud actions: **Always keep on this device** downloads it to the mirror; **Free up space** removes mirror copies that match OneDrive (changed files are kept); **Share** copies a view or edit link to the clipboard (for a work account, a link for your organisation or for anyone), or invites people by email; **Open on the web** opens it in OneDrive online.
 
 Originals are never overwritten: name clashes get a ` (2)` suffix.
+
+## Bar panel
+
+`omarchy-plugin/install.sh` adds a OneDrive icon to the Omarchy bar, beside the tray. Its panel lists the files most recently changed in each account, with the storage used; a tick marks files on this device, which open from the mirror, and the rest open on the web. Click opens the panel, right-click checks now, middle-click opens omadrive; in the panel `r` checks and `o` opens omadrive. It runs `omadrive --recent N`, which prints the same as JSON; it reads OneDrive's change feed, so the first check reads the whole drive (about half a minute), and later ones only what changed, cached in `~/.cache/omadrive/recent/`. It checks when opened and every five minutes, which its bar settings can turn off.
 
 ```
 bin/build     # build to build/omadrive

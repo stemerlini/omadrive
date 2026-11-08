@@ -37,7 +37,7 @@ Rectangle {
     signal notice(string text)
     signal menuAction(string action)
     signal openRemote(string path, string cloud)
-    signal itemsDropped(var paths, bool fromRemote, string destPath, bool move)
+    signal itemsDropped(var paths, bool fromRemote, string fromAccount, string destPath, bool move)
     signal openInNewTab(string path)
     signal treeToggled()
 
@@ -190,10 +190,12 @@ Rectangle {
     function handleDrop(drop, destPath) {
         var paths = []
         var fromRemote = false
+        var fromAccount = ""
         if (drop.formats.indexOf("application/x-omadrive-items") >= 0) {
             var data = JSON.parse(drop.getDataAsString("application/x-omadrive-items"))
             paths = data.paths
             fromRemote = data.remote
+            fromAccount = data.account || ""
         } else if (drop.hasUrls) {
             for (var i = 0; i < drop.urls.length; i++) {
                 var url = drop.urls[i].toString()
@@ -205,7 +207,7 @@ Rectangle {
             return
         var move = drop.proposedAction === Qt.MoveAction
         drop.accept(move ? Qt.MoveAction : Qt.CopyAction)
-        itemsDropped(paths, fromRemote, destPath, move)
+        itemsDropped(paths, fromRemote, fromAccount, destPath, move)
     }
 
     Connections {
@@ -495,7 +497,7 @@ Rectangle {
                 Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
                 Drag.proposedAction: Qt.CopyAction
                 Drag.mimeData: {
-                    var data = { "application/x-omadrive-items": JSON.stringify({ remote: pane.remote, paths: dragPaths }) }
+                    var data = { "application/x-omadrive-items": JSON.stringify({ remote: pane.remote, account: pane.remote ? pane.folder.account : "", paths: dragPaths }) }
                     if (!pane.remote)
                         data["text/uri-list"] = dragPaths.map(function (p) { return "file://" + encodeURI(p) }).join("\r\n")
                     return data

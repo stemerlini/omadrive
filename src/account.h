@@ -57,8 +57,9 @@ public:
     Q_INVOKABLE void signOut();
     Q_INVOKABLE void restore();
 
-    // "~/OneDrive" for the first personal account, "~/OneDrive - <org or name>" for the rest.
+    // ~/OneDrive-Personal, or ~/OneDrive-<domain> (SES for @ses.com) for a work account.
     static QString defaultMirror(const Profile &profile, const QStringList &taken);
+    static QString moveMirror(const QString &from, const QString &to);
 
 signals:
     void stateChanged();

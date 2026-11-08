@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "smerlini.onedrive",
+  "name": "OneDrive",
+  "version": "1.0.0",
+  "author": "Stefano Merlini",
+  "license": "MIT",
+  "description": "The files most recently changed in each OneDrive account signed in to omadrive, in the Omarchy bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "OneDrive",
+    "description": "See the latest files changed in your OneDrive accounts and open them. Checks OneDrive through omadrive when the panel opens and, if enabled, every few minutes.",
+    "category": "Files",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "autoRefresh": true,
+      "refreshIntervalSec": 300,
+      "filesPerAccount": 8
+    },
+    "schema": [
+      {
+        "key": "autoRefresh",
+        "type": "boolean",
+        "label": "Check OneDrive in the background",
+        "defaultValue": true
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Check every (seconds)",
+        "min": 60,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 300
+      },
+      {
+        "key": "filesPerAccount",
+        "type": "integer",
+        "label": "Files shown per account",
+        "min": 3,
+        "max": 20,
+        "step": 1,
+        "defaultValue": 8
+      }
+    ]
+  }
+}

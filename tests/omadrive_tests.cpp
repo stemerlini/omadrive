@@ -9,6 +9,7 @@
 #include "mirror.h"
 #include "preview.h"
 #include "theme.h"
+#include "transfer.h"
 #include "translator.h"
 
 class OmadriveTests : public QObject {
@@ -19,10 +20,29 @@ private slots:
     {
         Profile work;
         work.business = true;
-        work.org = "SES/Lux";
-        const QString base = QDir::homePath() + "/OneDrive - SES-Lux";
+        work.org = "SES S.A.";
+        work.email = "stefano.merlini@ses.com";
+        const QString base = QDir::homePath() + "/OneDrive-SES";
         QCOMPARE(Account::defaultMirror(work, {}), base);
-        QCOMPARE(Account::defaultMirror(work, {base}), base + " (2)");
+        QCOMPARE(Account::defaultMirror(work, {base}), base + "-2");
+        work.email = "someone@contoso.onmicrosoft.com";
+        QCOMPARE(Account::defaultMirror(work, {}), QDir::homePath() + "/OneDrive-Contoso");
+    }
+
+    // An operation whose account is gone must not fall back to the one shown.
+    void unknownAccountChangesNothing()
+    {
+        Mirror::setRoots({{"personal", "/tmp/p"}}, "personal");
+        Transfer transfer;
+        QSignalSpy finished(&transfer, &Transfer::finished);
+        QSignalSpy done(&transfer, &Transfer::done);
+        transfer.trash("work", {"/Reports"});
+        transfer.upload("", {"/tmp/x"}, "/", false);
+        transfer.openOnline("work", "/Reports");
+        QCOMPARE(finished.count(), 2);
+        QCOMPARE(done.count(), 1);
+        QVERIFY(!finished.first().first().toString().isEmpty());
+        Mirror::setRoots({}, {});
     }
 
     void copyNeverOverwrites()

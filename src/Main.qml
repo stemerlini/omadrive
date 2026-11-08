@@ -280,7 +280,22 @@ ApplicationWindow {
     }
     onClosing: saveTabs()
 
-    function transferPaths(items, fromRemote, toRemote, destPath, removeSource) {
+    // The account a pane's OneDrive paths belong to; "" for a local pane.
+    function accountOf(pane) { return pane.remote ? pane.folder.account : "" }
+    function driveOf(id) {
+        var a = account.accounts.filter(function (x) { return x.id === id })[0]
+        return a ? a.driveName : qsTr("OneDrive")
+    }
+
+    // Asks before running job: used for everything that removes files from a OneDrive.
+    function confirm(title, message, job) {
+        prompt.ask("confirm", title, message, false, "", { job: job })
+    }
+
+    // fromAccount/toAccount name the OneDrive of each side ("" when local),
+    // fixed when the items were picked, so switching account in between
+    // can never point the operation at the other drive.
+    function transferPaths(items, fromRemote, fromAccount, toRemote, toAccount, destPath, removeSource, confirmed) {
         // Dropping onto the same folder, or a folder into itself, does nothing.
         items = items.filter(function (p) {
             var parent = p.substring(0, p.lastIndexOf("/")) || "/"
@@ -289,20 +304,27 @@ ApplicationWindow {
         })
         if (items.length === 0)
             return
+        if (fromRemote && removeSource && !confirmed && !(toRemote && fromAccount === toAccount)) {
+            confirm(qsTr("Move out of %1").arg(driveOf(fromAccount)),
+                    qsTr("Move %n items out of %1? They are deleted from OneDrive once copied here.", "", items.length).arg(driveOf(fromAccount)),
+                    function () { transferPaths(items, fromRemote, fromAccount, toRemote, toAccount, destPath, true, true) })
+            return
+        }
         if (!fromRemote && !toRemote) {
             var error = removeSource ? backend.moveItems(items, destPath) : backend.copyItems(items, destPath)
             report(error, removeSource ? qsTr("Moved %n items", "", items.length) : qsTr("Copied %n items", "", items.length))
             clearMarks()
             refreshLocal()
             recheckCloud(false)
-        } else if (!account.signedIn) {
+        } else if ((fromRemote && !fromAccount) || (toRemote && !toAccount)) {
             say(qsTr("Sign in to OneDrive first"), true)
         } else if (fromRemote && toRemote) {
-            say(qsTr("Copying inside OneDrive is not supported yet"), true)
+            say(fromAccount !== toAccount ? qsTr("Copying between two OneDrive accounts is not supported; go through a local folder")
+                                          : qsTr("Copying inside OneDrive is not supported yet"), true)
         } else if (fromRemote) {
-            transfer.download(items, destPath, removeSource)
+            transfer.download(fromAccount, items, destPath, removeSource)
         } else {
-            transfer.upload(items, destPath, removeSource)
+            transfer.upload(toAccount, items, destPath, removeSource)
         }
     }
 
@@ -310,12 +332,17 @@ ApplicationWindow {
         // Alt+C/Alt+M out of OneDrive keep the cloud layout: they land in the mirror.
         if (activePane.remote && (!split || !otherPane.remote)) {
             var items = activePane.targets()
+            var id = accountOf(activePane)
             if (items.length === 0)
                 return
-            if (!account.signedIn)
+            if (!id)
                 say(qsTr("Sign in to OneDrive first"), true)
+            else if (removeSource)
+                confirm(qsTr("Move out of %1").arg(driveOf(id)),
+                        qsTr("Move %n items from %1 into its folder on this device? They are deleted from OneDrive once copied.", "", items.length).arg(driveOf(id)),
+                        function () { transfer.downloadToMirror(id, items, true) })
             else
-                transfer.downloadToMirror(items, removeSource)
+                transfer.downloadToMirror(id, items, false)
             return
         }
         if (!split) {
@@ -323,14 +350,15 @@ ApplicationWindow {
             say(qsTr("Choose the destination in the second pane, then press Alt+C or Alt+M again"), false)
             return
         }
-        transferPaths(activePane.targets(), activePane.remote, otherPane.remote, otherPane.folder.path, removeSource)
+        transferPaths(activePane.targets(), activePane.remote, accountOf(activePane), otherPane.remote, accountOf(otherPane),
+                      otherPane.folder.path, removeSource)
     }
 
     function clipboardPut(move) {
         var items = activePane.targets()
         if (items.length === 0)
             return
-        clip = { paths: items, remote: activePane.remote, move: move }
+        clip = { paths: items, remote: activePane.remote, account: accountOf(activePane), move: move }
         say(move ? qsTr("Cut %n items; paste with Ctrl+V", "", items.length)
                  : qsTr("Copied %n items; paste with Ctrl+V", "", items.length), false)
     }
@@ -349,17 +377,19 @@ ApplicationWindow {
         var c = clip
         if (c.move)
             clip = null
-        transferPaths(c.paths, c.remote, activePane.remote, activePane.folder.path, c.move)
+        transferPaths(c.paths, c.remote, c.account, activePane.remote, accountOf(activePane), activePane.folder.path, c.move)
     }
 
     // Dropping onto a tab drops into the folder that tab shows.
     function dropOnTab(drop, tab) {
         var paths = []
         var fromRemote = false
+        var fromAccount = ""
         if (drop.formats.indexOf("application/x-omadrive-items") >= 0) {
             var data = JSON.parse(drop.getDataAsString("application/x-omadrive-items"))
             paths = data.paths
             fromRemote = data.remote
+            fromAccount = data.account || ""
         } else if (drop.hasUrls) {
             for (var i = 0; i < drop.urls.length; i++) {
                 var url = drop.urls[i].toString()
@@ -371,7 +401,7 @@ ApplicationWindow {
             return
         var move = drop.proposedAction === Qt.MoveAction
         drop.accept(move ? Qt.MoveAction : Qt.CopyAction)
-        transferPaths(paths, fromRemote, tab.remote, tab.folder.path, move)
+        transferPaths(paths, fromRemote, fromAccount, tab.remote, tab.remote ? tab.folder.account : "", tab.folder.path, move)
     }
 
     function paneAction(action) {
@@ -383,17 +413,17 @@ ApplicationWindow {
         else if (action.startsWith("new:")) askNew(Number(action.slice(4)))
         else if (action === "trash") askTrash()
         else if (action === "preview") togglePreview()
-        else if (action === "mirror") transfer.downloadToMirror(activePane.targets(), false)
+        else if (action === "mirror") transfer.downloadToMirror(accountOf(activePane), activePane.targets(), false)
         else if (action === "clipCopy") clipboardPut(false)
         else if (action === "clipCut") clipboardPut(true)
         else if (action === "paste") paste()
         else if (action === "copyPath") copyPaths()
-        else if (action === "freeUp") transfer.freeUp(activePane.targets())
-        else if (action === "web") transfer.openOnline(shareTarget())
-        else if (action === "shareInvite") shareDialog.ask(shareTarget())
+        else if (action === "freeUp") transfer.freeUp(accountOf(activePane), activePane.targets())
+        else if (action === "web") transfer.openOnline(accountOf(activePane), shareTarget())
+        else if (action === "shareInvite") shareDialog.ask(accountOf(activePane), shareTarget())
         else if (action.startsWith("share:")) {
             var kind = action.slice(6)
-            transfer.shareLink(shareTarget(), kind.endsWith("edit"),
+            transfer.shareLink(accountOf(activePane), shareTarget(), kind.endsWith("edit"),
                                kind === "anyone" ? "anonymous" : kind.startsWith("org") ? "organization" : "")
         }
     }
@@ -404,16 +434,20 @@ ApplicationWindow {
     }
 
     // A OneDrive file opens from the mirror, downloading it first if needed.
-    property string pendingOpen: ""
+    property string pendingOpen: ""  // the local path, once downloaded
     function openRemote(path, cloud) {
-        if (cloud === "local") {
-            backend.openExternally(mirror.pathFor(path))
+        var id = accountOf(activePane)
+        var local = mirror.pathFor(id, path)
+        if (!local) {
+            say(qsTr("Sign in to OneDrive first"), true)
+        } else if (cloud === "local") {
+            backend.openExternally(local)
         } else if (cloud === "changed") {
-            backend.openExternally(mirror.pathFor(path))
+            backend.openExternally(local)
             say(qsTr("Opened the copy on this device; it differs from OneDrive"), false)
         } else {
-            pendingOpen = path
-            transfer.downloadToMirror([path], false)
+            pendingOpen = local
+            transfer.downloadToMirror(id, [path], false)
         }
     }
 
@@ -422,18 +456,18 @@ ApplicationWindow {
             previewPopup.close()
         } else {
             previewPopup.open()
-            preview.show(activePane.currentItemPath, activePane.remote)
+            preview.show(activePane.currentItemPath, activePane.remote, accountOf(activePane))
         }
     }
 
     // While the preview is open it follows the highlight, after a short pause
     // so holding an arrow key does not fetch every file on the way.
-    readonly property string previewKey: activePane.remote + "|" + activePane.currentItemPath
+    readonly property string previewKey: accountOf(activePane) + "|" + activePane.remote + "|" + activePane.currentItemPath
     onPreviewKeyChanged: if (previewPopup.visible) previewTimer.restart()
     Timer {
         id: previewTimer
         interval: 150
-        onTriggered: preview.show(win.activePane.currentItemPath, win.activePane.remote)
+        onTriggered: preview.show(win.activePane.currentItemPath, win.activePane.remote, win.accountOf(win.activePane))
     }
 
     onActiveChanged: if (active) recheckCloud(false)
@@ -458,42 +492,59 @@ ApplicationWindow {
 
     function askTrash() {
         var items = activePane.targets()
-        if (items.length > 0)
+        if (items.length === 0)
+            return
+        if (activePane.remote)
+            prompt.ask("trash", qsTr("Delete from %1").arg(driveOf(accountOf(activePane))),
+                       qsTr("Move %n items in %1 to its recycle bin? You can restore them from the OneDrive website.", "", items.length)
+                           .arg(driveOf(accountOf(activePane))), false, "")
+        else
             prompt.ask("trash", qsTr("Trash"), qsTr("Move %n items to the trash?", "", items.length), false, "")
     }
 
-    function runRemotePrompt(action, text) {
-        if (!account.signedIn) {
+    // What a prompt works on, taken when it opens: the pane may change account
+    // or highlight before it is answered.
+    function promptContext() {
+        return { pane: activePane, remote: activePane.remote, account: accountOf(activePane),
+                 folder: activePane.folder.path, path: activePane.currentPath(),
+                 targets: activePane.targets(), kind: newKind }
+    }
+
+    function runRemotePrompt(c, action, text) {
+        if (!c.account) {
             say(qsTr("Sign in to OneDrive first"), true)
         } else if (action === "mkdir") {
-            transfer.makeFolder(activePane.folder.path, text.trim())
+            transfer.makeFolder(c.account, c.folder, text.trim())
         } else if (action === "mkfile") {
-            transfer.makeFile(activePane.folder.path, text.trim(), newKind.content)
+            transfer.makeFile(c.account, c.folder, text.trim(), c.kind.content)
         } else if (action === "rename") {
-            transfer.renameItem(activePane.currentPath(), text.trim())
+            transfer.renameItem(c.account, c.path, text.trim())
         } else if (action === "trash") {
-            transfer.trash(activePane.targets())
+            transfer.trash(c.account, c.targets)
         }
     }
 
-    function runPrompt(action, text) {
+    function runPrompt(action, text, c) {
+        if (action === "confirm") {
+            c.job()
+            return
+        }
         // Highlight what was just made once the folder reloads.
         if (action === "mkdir" || action === "mkfile")
-            activePane.lastPath = activePane.folder.path.replace(/\/$/, "") + "/" + text.trim()
-        if (activePane.remote) {
-            runRemotePrompt(action, text)
+            c.pane.lastPath = c.folder.replace(/\/$/, "") + "/" + text.trim()
+        if (c.remote) {
+            runRemotePrompt(c, action, text)
             return
         }
         if (action === "mkdir") {
-            report(backend.makeFolder(activePane.folder.path, text.trim()), qsTr("Folder created"))
+            report(backend.makeFolder(c.folder, text.trim()), qsTr("Folder created"))
         } else if (action === "mkfile") {
-            report(backend.makeFile(activePane.folder.path, text.trim(), newKind.content, newKind.executable === true), qsTr("File created"))
+            report(backend.makeFile(c.folder, text.trim(), c.kind.content, c.kind.executable === true), qsTr("File created"))
         } else if (action === "rename") {
-            report(backend.renameItem(activePane.currentPath(), text.trim()), qsTr("Renamed"))
+            report(backend.renameItem(c.path, text.trim()), qsTr("Renamed"))
         } else if (action === "trash") {
-            var items = activePane.targets()
-            report(backend.trashItems(items), qsTr("Moved %n items to the trash", "", items.length))
-            activePane.clearMarks()
+            report(backend.trashItems(c.targets), qsTr("Moved %n items to the trash", "", c.targets.length))
+            c.pane.clearMarks()
         }
         refreshLocal()
         recheckCloud(false)
@@ -543,7 +594,7 @@ ApplicationWindow {
             win.recheckCloud(true)
             if (win.pendingOpen !== "") {
                 if (error === "")
-                    backend.openExternally(mirror.pathFor(win.pendingOpen))
+                    backend.openExternally(win.pendingOpen)
                 win.pendingOpen = ""
             }
         }
@@ -625,7 +676,7 @@ ApplicationWindow {
                     onNotice: text => win.say(text, false)
                     onMenuAction: action => win.paneAction(action)
                     onOpenRemote: (path, cloud) => win.openRemote(path, cloud)
-                    onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
+                    onItemsDropped: (paths, fromRemote, fromAccount, dest, move) => win.transferPaths(paths, fromRemote, fromAccount, remote, win.accountOf(leftPane), dest, move)
                     showTree: win.showTree
                     onTreeToggled: win.showTree = !win.showTree
                     onOpenInNewTab: path => win.newTab(remote, path)
@@ -644,7 +695,7 @@ ApplicationWindow {
                     onNotice: text => win.say(text, false)
                     onMenuAction: action => win.paneAction(action)
                     onOpenRemote: (path, cloud) => win.openRemote(path, cloud)
-                    onItemsDropped: (paths, fromRemote, dest, move) => win.transferPaths(paths, fromRemote, remote, dest, move)
+                    onItemsDropped: (paths, fromRemote, fromAccount, dest, move) => win.transferPaths(paths, fromRemote, fromAccount, remote, win.accountOf(rightPane), dest, move)
                     showTree: win.showTree
                     onTreeToggled: win.showTree = !win.showTree
                     onOpenInNewTab: path => win.newTab(remote, path)
@@ -694,6 +745,7 @@ ApplicationWindow {
     Dialog {
         id: prompt
         property string action: ""
+        property var context: ({})
         property bool withInput: true
         property string text: ""
         anchors.centerIn: Overlay.overlay
@@ -718,7 +770,8 @@ ApplicationWindow {
             onRejected: prompt.reject()
         }
 
-        function ask(newAction, newTitle, message, input, initial) {
+        function ask(newAction, newTitle, message, input, initial, extra) {
+            context = extra || win.promptContext()
             action = newAction
             title = newTitle
             text = message
@@ -735,7 +788,7 @@ ApplicationWindow {
             }
         }
 
-        onAccepted: win.runPrompt(action, field.text)
+        onAccepted: win.runPrompt(action, field.text, context)
         onClosed: win.activePane.focusList()
 
         ColumnLayout {
@@ -754,17 +807,19 @@ ApplicationWindow {
     Dialog {
         id: shareDialog
         property string path: ""
+        property string accountId: ""
         anchors.centerIn: Overlay.overlay
         modal: true
         width: Math.min(win.width - 40, 480)
         padding: 16
         topPadding: 4
-        title: qsTr("Share “%1”").arg(path === "/" ? account.driveName : path.split("/").pop())
+        title: qsTr("Share “%1”").arg(path === "/" ? win.driveOf(accountId) : path.split("/").pop())
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         readonly property var emails: emailField.text.split(/[\s,;]+/).filter(function (e) { return e.indexOf("@") > 0 })
 
-        function ask(target) {
+        function ask(id, target) {
+            accountId = id
             path = target
             emailField.text = ""
             noteField.text = ""
@@ -793,7 +848,7 @@ ApplicationWindow {
             Button { text: qsTr("Cancel"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole; flat: true }
         }
 
-        onAccepted: if (emails.length > 0) transfer.invite(path, emails, roleBox.currentIndex === 1, noteField.text)
+        onAccepted: if (emails.length > 0) transfer.invite(accountId, path, emails, roleBox.currentIndex === 1, noteField.text)
         onClosed: win.activePane.focusList()
 
         ColumnLayout {

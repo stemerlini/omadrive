@@ -6,9 +6,11 @@
 #include <QFile>
 #include <QFont>
 #include <QFutureWatcher>
+#include <QHash>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QJsonObject>
 #include <QPainter>
 #include <QPainterPath>
@@ -40,7 +42,7 @@ QString accountsPath() {
 }
 
 QString driveNameOf(const Profile &p) {
-    return p.business ? QString("OneDrive - %1").arg(p.org) : QString("OneDrive");
+    return QString("OneDrive - %1").arg(p.business ? p.org : QString("Personal"));
 }
 
 // "Stefano Merlini" -> "SM"; "Merlini, Stefano" (as work directories write it) -> "SM".
@@ -178,22 +180,41 @@ QVariantList Account::accounts() const {
 }
 
 QString Account::defaultMirror(const Profile &profile, const QStringList &taken) {
-    const QString configured = Mirror::configuredRoot();
-    if (!profile.business && !taken.contains(configured))
-        return configured;
-    QString label = profile.business ? profile.org : profile.email.section('@', 0, 0);
-    label.replace('/', '-');
-    const QString base = QDir::homePath() + "/OneDrive - " + label.trimmed();
+    QString base;
+    if (!profile.business) {
+        base = Mirror::personalRoot();
+    } else {
+        // Named after the email domain: someone@ses.com -> ~/OneDrive-SES.
+        QString label = profile.email.section('@', 1).section('.', 0, 0);
+        if (label.isEmpty())
+            label = profile.org;
+        label.remove(QRegularExpression("[^A-Za-z0-9_-]"));
+        if (label.isEmpty())
+            label = "Work";
+        label = label.size() <= 4 ? label.toUpper() : label.left(1).toUpper() + label.mid(1);
+        base = QDir::homePath() + "/OneDrive-" + label;
+    }
     QString path = base;
     for (int n = 2; taken.contains(path); ++n)
-        path = QString("%1 (%2)").arg(base).arg(n);
+        path = QString("%1-%2").arg(base).arg(n);
     return path;
+}
+
+// Moves an account's mirror folder to where it now belongs, unless that
+// would mix two folders; returns the folder the account ends up with.
+QString Account::moveMirror(const QString &from, const QString &to) {
+    if (from == to || !QFileInfo(from).isDir())
+        return to;
+    if (QFileInfo::exists(to) || !QDir().rename(from, to))
+        return from;
+    return to;
 }
 
 void Account::load() {
     QFile file(accountsPath());
     if (!file.open(QIODevice::ReadOnly))
         return;
+    bool renamed = false;
     const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
     for (const QJsonValue &value : json.value("accounts").toArray()) {
         const QJsonObject a = value.toObject();
@@ -206,17 +227,24 @@ void Account::load() {
         e.mirror = a.value("mirror").toString();
         if (e.profile.id.isEmpty() || entry(e.profile.id))
             continue;
+        QStringList taken;
+        for (const Entry &other : std::as_const(m_entries))
+            taken << other.mirror;
+        // Folders named before ~/OneDrive-Personal and ~/OneDrive-<org>.
+        const QString old = QDir::homePath() + "/OneDrive";
         if (e.mirror.isEmpty()) {
-            QStringList taken;
-            for (const Entry &other : std::as_const(m_entries))
-                taken << other.mirror;
             e.mirror = defaultMirror(e.profile, taken);
+        } else if (Mirror::configuredRoot().isEmpty() && (e.mirror == old || e.mirror.startsWith(old + " - "))) {
+            e.mirror = moveMirror(e.mirror, defaultMirror(e.profile, taken));
+            renamed = true;
         }
         m_entries.append(e);
     }
     m_activeId = json.value("active").toString();
     if (!activeEntry())
         m_activeId = m_entries.isEmpty() ? QString() : m_entries.first().profile.id;
+    if (renamed)
+        save();
 }
 
 void Account::save() const {
@@ -233,9 +261,11 @@ void Account::save() const {
 // Every list re-reads on stateChanged, so it only fires when the active
 // account or its state really changed.
 void Account::changed() {
-    const Entry *e = activeEntry();
     Graph::setActive(m_activeId);
-    Mirror::setRoot(e ? e->mirror : QString());
+    QHash<QString, QString> roots;
+    for (const Entry &each : std::as_const(m_entries))
+        roots.insert(each.profile.id, each.mirror);
+    Mirror::setRoots(roots, m_activeId);
     emit accountsChanged();
     const QString key = m_activeId + "|" + state();
     if (key != m_lastKey) {
@@ -345,7 +375,12 @@ void Account::welcome(const Outcome &outcome) {
         for (const Entry &other : std::as_const(m_entries))
             taken << other.mirror;
         // The account that was signed in before keeps the folder it used.
-        fresh.mirror = outcome.legacy ? Mirror::configuredRoot() : defaultMirror(outcome.profile, taken);
+        fresh.mirror = defaultMirror(outcome.profile, taken);
+        // The folder of the sign-in from before there were accounts.
+        if (outcome.legacy && Mirror::configuredRoot().isEmpty())
+            fresh.mirror = moveMirror(QDir::homePath() + "/OneDrive", fresh.mirror);
+        else if (outcome.legacy)
+            fresh.mirror = Mirror::configuredRoot();
         m_entries.append(fresh);
         e = &m_entries.last();
     }

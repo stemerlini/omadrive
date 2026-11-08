@@ -37,7 +37,8 @@ public:
     QStringList entries() const { return m_result.entries; }
     QString cloud() const { return m_result.cloud; }
 
-    Q_INVOKABLE void show(const QString &path, bool remote);
+    // account: whose OneDrive a remote path is in.
+    Q_INVOKABLE void show(const QString &path, bool remote, const QString &account = {});
     Q_INVOKABLE void clear();
 
     static Result local(const QString &path);

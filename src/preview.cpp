@@ -85,7 +85,7 @@ void Preview::clear() {
     set({});
 }
 
-void Preview::show(const QString &path, bool remote) {
+void Preview::show(const QString &path, bool remote, const QString &account) {
     const quint64 generation = ++m_generation;
     if (path.isEmpty()) {
         set({});
@@ -104,8 +104,8 @@ void Preview::show(const QString &path, bool remote) {
             set(result);
     });
     const QString cacheDir = m_cacheDir;
-    Graph *graph = &Graph::active();
-    const QString root = Mirror::root();
+    const QString root = Mirror::rootFor(account);
+    Graph *graph = Graph::forAccount(root.isEmpty() ? QString() : account);  // empty: "not signed in"
     watcher->setFuture(QtConcurrent::run([path, remote, cacheDir, graph, root] {
         return remote ? Preview::remote(*graph, root, path, cacheDir) : Preview::local(path);
     }));

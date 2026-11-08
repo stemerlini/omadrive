@@ -218,19 +218,35 @@ void Transfer::start(std::function<Result(const Say &)> job) {
     }));
 }
 
-void Transfer::download(const QStringList &remotePaths, const QString &localDir, bool removeSource) {
-    downloadAll(remotePaths, [localDir](const QString &) { return localDir; }, false, removeSource);
+// Null, after reporting why, when the id is not one of the accounts.
+Graph *Transfer::graphOf(const QString &account, bool quickJob) {
+    if (!account.isEmpty() && !Mirror::rootFor(account).isEmpty())
+        return Graph::forAccount(account);
+    const QString error = tr("That OneDrive account is no longer signed in here; nothing was changed");
+    if (quickJob)
+        emit done(error, {});
+    else
+        emit finished(error, {});
+    return nullptr;
 }
 
-void Transfer::downloadToMirror(const QStringList &remotePaths, bool removeSource) {
-    const QString root = Mirror::root();
-    downloadAll(remotePaths, [root](const QString &remote) { return Mirror::localPath(root, Graph::parentPath(remote)); },
+void Transfer::download(const QString &account, const QStringList &remotePaths, const QString &localDir,
+                        bool removeSource) {
+    if (Graph *graph = graphOf(account, false))
+        downloadAll(graph, remotePaths, [localDir](const QString &) { return localDir; }, false, removeSource);
+}
+
+void Transfer::downloadToMirror(const QString &account, const QStringList &remotePaths, bool removeSource) {
+    Graph *graph = graphOf(account, false);
+    if (!graph)
+        return;
+    const QString root = Mirror::rootFor(account);
+    downloadAll(graph, remotePaths, [root](const QString &remote) { return Mirror::localPath(root, Graph::parentPath(remote)); },
                 true, removeSource);
 }
 
-void Transfer::downloadAll(const QStringList &remotePaths, const std::function<QString(const QString &)> &dirFor,
-                           bool merge, bool removeSource) {
-    Graph *account = &Graph::active();
+void Transfer::downloadAll(Graph *account, const QStringList &remotePaths,
+                           const std::function<QString(const QString &)> &dirFor, bool merge, bool removeSource) {
     start([=](const Say &say) {
         Graph &graph = *account;
         QStringList errors;
@@ -257,8 +273,11 @@ void Transfer::downloadAll(const QStringList &remotePaths, const std::function<Q
     });
 }
 
-void Transfer::upload(const QStringList &localPaths, const QString &remoteDir, bool removeSource) {
-    Graph *account = &Graph::active();
+void Transfer::upload(const QString &accountId, const QStringList &localPaths, const QString &remoteDir,
+                      bool removeSource) {
+    Graph *account = graphOf(accountId, false);
+    if (!account)
+        return;
     start([=](const Say &say) {
         Graph &graph = *account;
         QStringList errors;
@@ -277,8 +296,10 @@ void Transfer::upload(const QStringList &localPaths, const QString &remoteDir, b
     });
 }
 
-void Transfer::makeFolder(const QString &remoteParent, const QString &name) {
-    Graph *graph = &Graph::active();
+void Transfer::makeFolder(const QString &account, const QString &remoteParent, const QString &name) {
+    Graph *graph = graphOf(account, false);
+    if (!graph)
+        return;
     start([=](const Say &) {
         QString error;
         if (name.isEmpty() || name.contains('/'))
@@ -288,8 +309,11 @@ void Transfer::makeFolder(const QString &remoteParent, const QString &name) {
     });
 }
 
-void Transfer::makeFile(const QString &remoteParent, const QString &name, const QString &content) {
-    Graph *graph = &Graph::active();
+void Transfer::makeFile(const QString &account, const QString &remoteParent, const QString &name,
+                        const QString &content) {
+    Graph *graph = graphOf(account, false);
+    if (!graph)
+        return;
     start([=](const Say &) {
         if (name.isEmpty() || name.contains('/'))
             return Result{tr("Invalid file name"), {}};
@@ -301,8 +325,10 @@ void Transfer::makeFile(const QString &remoteParent, const QString &name, const 
     });
 }
 
-void Transfer::renameItem(const QString &remotePath, const QString &newName) {
-    Graph *graph = &Graph::active();
+void Transfer::renameItem(const QString &account, const QString &remotePath, const QString &newName) {
+    Graph *graph = graphOf(account, false);
+    if (!graph)
+        return;
     start([=](const Say &) {
         if (newName.isEmpty() || newName.contains('/'))
             return Result{tr("Invalid name"), {}};
@@ -313,8 +339,10 @@ void Transfer::renameItem(const QString &remotePath, const QString &newName) {
     });
 }
 
-void Transfer::trash(const QStringList &remotePaths) {
-    Graph *graph = &Graph::active();
+void Transfer::trash(const QString &account, const QStringList &remotePaths) {
+    Graph *graph = graphOf(account, false);
+    if (!graph)
+        return;
     start([=](const Say &) {
         QStringList errors;
         int done = 0;
@@ -329,9 +357,11 @@ void Transfer::trash(const QStringList &remotePaths) {
     });
 }
 
-void Transfer::freeUp(const QStringList &remotePaths) {
-    Graph *graph = &Graph::active();
-    const QString root = Mirror::root();
+void Transfer::freeUp(const QString &account, const QStringList &remotePaths) {
+    Graph *graph = graphOf(account, false);
+    if (!graph)
+        return;
+    const QString root = Mirror::rootFor(account);
     start([=](const Say &say) {
         qint64 freed = 0;
         int kept = 0;
@@ -355,8 +385,10 @@ void Transfer::freeUp(const QStringList &remotePaths) {
 // Personal OneDrive links are for anyone with the link; work links can be
 // for the organisation only ("organization") or for anyone ("anonymous"),
 // where its admins allow that.
-void Transfer::shareLink(const QString &remotePath, bool edit, const QString &scope) {
-    Graph *graph = &Graph::active();
+void Transfer::shareLink(const QString &account, const QString &remotePath, bool edit, const QString &scope) {
+    Graph *graph = graphOf(account, true);
+    if (!graph)
+        return;
     quick([=] {
         QJsonObject body{{"type", edit ? "edit" : "view"}};
         if (!scope.isEmpty())
@@ -373,8 +405,11 @@ void Transfer::shareLink(const QString &remotePath, bool edit, const QString &sc
     });
 }
 
-void Transfer::invite(const QString &remotePath, const QStringList &emails, bool edit, const QString &message) {
-    Graph *graph = &Graph::active();
+void Transfer::invite(const QString &account, const QString &remotePath, const QStringList &emails, bool edit,
+                      const QString &message) {
+    Graph *graph = graphOf(account, true);
+    if (!graph)
+        return;
     quick([=] {
         QJsonArray recipients;
         for (const QString &email : emails)
@@ -392,8 +427,10 @@ void Transfer::invite(const QString &remotePath, const QStringList &emails, bool
     });
 }
 
-void Transfer::openOnline(const QString &remotePath) {
-    Graph *graph = &Graph::active();
+void Transfer::openOnline(const QString &account, const QString &remotePath) {
+    Graph *graph = graphOf(account, true);
+    if (!graph)
+        return;
     quick([=] {
         const GraphReply reply = graph->call("GET", Graph::itemUrl(remotePath) + "?$select=webUrl");
         Result result{reply.error, tr("Opened in the browser")};

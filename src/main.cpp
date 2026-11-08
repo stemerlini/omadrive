@@ -14,11 +14,17 @@
 #include "mirror.h"
 #include "onedrivelist.h"
 #include "preview.h"
+#include "recent.h"
 #include "theme.h"
 #include "transfer.h"
 #include "translator.h"
 
 int main(int argc, char *argv[]) {
+    if (argc >= 2 && QByteArray(argv[1]) == "--recent") {
+        QCoreApplication app(argc, argv);
+        app.setApplicationName("omadrive");
+        return printRecent(argc >= 3 ? QByteArray(argv[2]).toInt() : 10);
+    }
     QGuiApplication app(argc, argv);
     app.setApplicationName("omadrive");
     app.setApplicationVersion("0.1.0");
