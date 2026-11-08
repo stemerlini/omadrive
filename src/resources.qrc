@@ -4,7 +4,6 @@
         <file alias="FolderPane.qml">FolderPane.qml</file>
         <file alias="TabState.qml">TabState.qml</file>
         <file alias="FolderTree.qml">FolderTree.qml</file>
-        <file alias="PathStrips.qml">PathStrips.qml</file>
         <file alias="TabStrip.qml">TabStrip.qml</file>
         <file alias="PreviewPopup.qml">PreviewPopup.qml</file>
         <file alias="PdfView.qml">PdfView.qml</file>

@@ -857,7 +857,7 @@ ApplicationWindow {
                     ["Ctrl+1…9", qsTr("Go to tab")],
                     ["Middle-click", qsTr("Folder: open in new tab; tab: close")],
                     ["Ctrl+Shift+N", qsTr("New window")],
-                    ["` / Ctrl+B", qsTr("Folder columns or thin path strips")],
+                    ["` / Ctrl+B", qsTr("Show or hide folder columns")],
                     ["Enter / →", qsTr("Open folder or file")],
                     ["Backspace / Alt+↑", qsTr("Parent folder")],
                     ["Alt+← / Alt+→", qsTr("Back / forward")],

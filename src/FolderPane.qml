@@ -344,7 +344,7 @@ Rectangle {
                 implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus
                 icon.source: "qrc:/icons/tree.svg"; icon.width: 18; icon.height: 18
                 icon.color: pane.showTree ? theme.accent : "#c0c0c6"
-                ToolTip.text: pane.showTree ? qsTr("Collapse folder columns (`)") : qsTr("Show folder columns (`)")
+                ToolTip.text: pane.showTree ? qsTr("Hide folder columns (`)") : qsTr("Show folder columns (`)")
                 ToolTip.visible: hovered; ToolTip.delay: 500
                 onClicked: pane.treeToggled()
             }
@@ -379,24 +379,9 @@ Rectangle {
             onOpenedInNewTab: path => pane.openInNewTab(path)
         }
 
-        RowLayout {
-        SplitView.fillHeight: true
-        spacing: 6
-
-        PathStrips {
-            Layout.fillHeight: true
-            visible: !pane.showTree && !pane.needsSignIn
-            segments: pane.segments
-            remote: pane.remote
-            onOpened: depth => { pane.focusRequested(); pane.goTo(depth) }
-            onOpenedInNewTab: path => pane.openInNewTab(path)
-            onExpandRequested: pane.treeToggled()
-        }
-
         ListView {
             id: list
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            SplitView.fillHeight: true
             clip: true
             model: pane.folder
             keyNavigationEnabled: true
@@ -538,7 +523,6 @@ Rectangle {
                     onDropped: drop => pane.handleDrop(drop, row.path)
                 }
             }
-        }
         }
 
         }
