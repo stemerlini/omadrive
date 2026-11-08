@@ -241,7 +241,7 @@ ApplicationWindow {
         showHidden = settings.showHidden
         showTree = settings.showTree
         var saved = []
-        // Ctrl+N opens a window with just the starting tabs.
+        // Ctrl+Shift+N opens a window with just the starting tabs.
         if (!freshStart)
             try { saved = JSON.parse(settings.tabs) } catch (e) {}
         var list = []
@@ -379,7 +379,7 @@ ApplicationWindow {
         else if (action === "copy") copy()
         else if (action === "move") move()
         else if (action === "rename") askRename()
-        else if (action === "mkdir") askNewFolder()
+        else if (action.startsWith("new:")) askNew(Number(action.slice(4)))
         else if (action === "trash") askTrash()
         else if (action === "preview") togglePreview()
         else if (action === "mirror") transfer.downloadToMirror(activePane.targets(), false)
@@ -427,8 +427,13 @@ ApplicationWindow {
     function copy() { transferItems(false) }
     function move() { transferItems(true) }
 
-    function askNewFolder() {
-        prompt.ask("mkdir", qsTr("New folder"), qsTr("Name of the new folder"), true, "")
+    property var newKind: null
+    function askNew(index) {
+        newKind = activePane.newKinds[index]
+        if (newKind.folder)
+            prompt.ask("mkdir", qsTr("New folder"), qsTr("Name of the new folder"), true, newKind.name)
+        else
+            prompt.ask("mkfile", qsTr("New file"), qsTr("Name of the new file"), true, newKind.name)
     }
 
     function askRename() {
@@ -448,6 +453,8 @@ ApplicationWindow {
             say(qsTr("Sign in to OneDrive first"), true)
         } else if (action === "mkdir") {
             transfer.makeFolder(activePane.folder.path, text.trim())
+        } else if (action === "mkfile") {
+            transfer.makeFile(activePane.folder.path, text.trim(), newKind.content)
         } else if (action === "rename") {
             transfer.renameItem(activePane.currentPath(), text.trim())
         } else if (action === "trash") {
@@ -456,12 +463,17 @@ ApplicationWindow {
     }
 
     function runPrompt(action, text) {
+        // Highlight what was just made once the folder reloads.
+        if (action === "mkdir" || action === "mkfile")
+            activePane.lastPath = activePane.folder.path.replace(/\/$/, "") + "/" + text.trim()
         if (activePane.remote) {
             runRemotePrompt(action, text)
             return
         }
         if (action === "mkdir") {
             report(backend.makeFolder(activePane.folder.path, text.trim()), qsTr("Folder created"))
+        } else if (action === "mkfile") {
+            report(backend.makeFile(activePane.folder.path, text.trim(), newKind.content, newKind.executable === true), qsTr("File created"))
         } else if (action === "rename") {
             report(backend.renameItem(activePane.currentPath(), text.trim()), qsTr("Renamed"))
         } else if (action === "trash") {
@@ -479,7 +491,7 @@ ApplicationWindow {
     // Keys follow Windows and One Commander.
     Shortcut { sequences: ["?", "Ctrl+/"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: help.visible ? help.close() : help.open() }
     Shortcut { sequence: "Ctrl+Q"; context: Qt.ApplicationShortcut; onActivated: win.close() }
-    Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; onActivated: backend.newWindow() }
+    Shortcut { sequence: "Ctrl+Shift+N"; context: Qt.ApplicationShortcut; onActivated: backend.newWindow() }
     Shortcut { sequence: "Tab"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.switchPane() }
     Shortcut { sequence: "Alt+F"; context: Qt.ApplicationShortcut; enabled: !win.typing && win.split; onActivated: win.switchPane() }
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.togglePreview() }
@@ -492,7 +504,7 @@ ApplicationWindow {
     Shortcut { sequences: ["Ctrl+L", "Alt+D"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.editPath() }
     Shortcut { sequence: "Alt+C"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.copy() }
     Shortcut { sequence: "Alt+M"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.move() }
-    Shortcut { sequence: "Ctrl+Shift+N"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askNewFolder() }
+    Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.openNewMenu() }
     Shortcut { sequence: "F2"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askRename() }
     Shortcut { sequence: "Delete"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.askTrash() }
     Shortcut { sequences: ["Ctrl+R", "F5"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.folder.refresh() }
@@ -683,7 +695,11 @@ ApplicationWindow {
             open()
             if (input) {
                 field.forceActiveFocus()
-                field.selectAll()
+                var dot = initial.lastIndexOf(".")
+                if (newAction !== "mkdir" && dot > 0)
+                    field.select(0, dot)
+                else
+                    field.selectAll()
             }
         }
 
@@ -725,7 +741,7 @@ ApplicationWindow {
                     ["Ctrl+Tab / Ctrl+Shift+Tab", qsTr("Next or previous tab")],
                     ["Ctrl+1…9", qsTr("Go to tab")],
                     ["Middle-click", qsTr("Folder: open in new tab; tab: close")],
-                    ["Ctrl+N", qsTr("New window")],
+                    ["Ctrl+Shift+N", qsTr("New window")],
                     ["` / Ctrl+B", qsTr("Show or hide folder columns")],
                     ["Enter / →", qsTr("Open folder or file")],
                     ["Backspace / Alt+↑", qsTr("Parent folder")],
@@ -739,7 +755,7 @@ ApplicationWindow {
                     ["Alt+C", qsTr("Copy to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
                     ["Alt+M", qsTr("Move to the other pane (from OneDrive: into %1)").arg(mirror.root.replace(backend.homePath(), "~"))],
                     ["Drag and drop", qsTr("Copy onto a pane, folder or tab; Shift moves")],
-                    ["Ctrl+Shift+N", qsTr("New folder")],
+                    ["Ctrl+N", qsTr("New file or folder")],
                     ["F2", qsTr("Rename")],
                     ["Delete", qsTr("Move to the trash")],
                     ["Ctrl+R / F5", qsTr("Refresh")],

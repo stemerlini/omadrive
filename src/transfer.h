@@ -25,6 +25,7 @@ public:
     Q_INVOKABLE void downloadToMirror(const QStringList &remotePaths, bool removeSource);
     Q_INVOKABLE void upload(const QStringList &localPaths, const QString &remoteDir, bool removeSource);
     Q_INVOKABLE void makeFolder(const QString &remoteParent, const QString &name);
+    Q_INVOKABLE void makeFile(const QString &remoteParent, const QString &name, const QString &content);
     Q_INVOKABLE void renameItem(const QString &remotePath, const QString &newName);
     Q_INVOKABLE void trash(const QStringList &remotePaths);
 

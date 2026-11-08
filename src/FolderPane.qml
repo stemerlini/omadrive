@@ -41,6 +41,16 @@ Rectangle {
     signal openInNewTab(string path)
     signal treeToggled()
 
+    // What Ctrl+N can create; Main.qml asks for the name and makes it.
+    readonly property var newKinds: [
+        { label: qsTr("&Folder"), name: qsTr("New folder"), folder: true },
+        { label: qsTr("&Text document"), name: qsTr("New text document.txt"), content: "" },
+        { label: qsTr("&Markdown"), name: qsTr("New document.md"), content: "" },
+        { label: qsTr("&Shell script"), name: "script.sh", content: "#!/usr/bin/env bash\n\n", executable: true },
+        { label: qsTr("&Empty file"), name: qsTr("New file"), content: "" }
+    ]
+    function openNewMenu() { newMenu.popup(newButton, 0, newButton.height) }
+
     color: "#131316"
     radius: theme.radius
     border.width: active || pageDrop.containsDrag ? 2 : 1
@@ -216,6 +226,16 @@ Rectangle {
     }
 
     Menu {
+        id: newMenu
+        Instantiator {
+            model: pane.newKinds
+            delegate: MenuItem { required property var modelData; required property int index; text: modelData.label; onTriggered: pane.menuAction("new:" + index) }
+            onObjectAdded: (index, object) => newMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => newMenu.removeItem(object)
+        }
+    }
+
+    Menu {
         id: menu
         MenuItem { text: qsTr("Open"); onTriggered: pane.menuAction("open") }
         MenuItem {
@@ -250,7 +270,16 @@ Rectangle {
         }
         MenuSeparator {}
         MenuItem { text: qsTr("Rename\tF2"); onTriggered: pane.menuAction("rename") }
-        MenuItem { text: qsTr("New folder\tCtrl+Shift+N"); onTriggered: pane.menuAction("mkdir") }
+        Menu {
+            id: newSubMenu
+            title: qsTr("New")
+            Instantiator {
+                model: pane.newKinds
+                delegate: MenuItem { required property var modelData; required property int index; text: modelData.label; onTriggered: pane.menuAction("new:" + index) }
+                onObjectAdded: (index, object) => newSubMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => newSubMenu.removeItem(object)
+            }
+        }
         MenuItem { text: qsTr("Move to the trash\tDelete"); onTriggered: pane.menuAction("trash") }
     }
 
@@ -331,7 +360,7 @@ Rectangle {
                 onClicked: pane.treeToggled()
             }
             ToolButton { text: "↻"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Refresh (Ctrl+R)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.folder.refresh() } }
-            ToolButton { text: "+"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("New folder (Ctrl+Shift+N)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.menuAction("mkdir") } }
+            ToolButton { id: newButton; text: "+"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("New file or folder (Ctrl+N)"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.openNewMenu() } }
         }
 
         Label {

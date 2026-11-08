@@ -133,6 +133,17 @@ QString Backend::makeFolder(const QString &parent, const QString &name) {
     return QDir().mkdir(uniquePath(parent, name)) ? QString() : tr("Cannot create folder in %1").arg(parent);
 }
 
+QString Backend::makeFile(const QString &parent, const QString &name, const QString &content, bool executable) {
+    if (!validName(name))
+        return tr("Invalid file name");
+    QFile file(uniquePath(parent, name));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) || file.write(content.toUtf8()) < 0)
+        return tr("Cannot create file in %1").arg(parent);
+    if (executable)
+        file.setPermissions(file.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeGroup | QFileDevice::ExeOther);
+    return {};
+}
+
 QString Backend::renameItem(const QString &path, const QString &newName) {
     if (!validName(newName))
         return tr("Invalid name");

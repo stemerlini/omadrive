@@ -231,6 +231,18 @@ void Transfer::makeFolder(const QString &remoteParent, const QString &name) {
     });
 }
 
+void Transfer::makeFile(const QString &remoteParent, const QString &name, const QString &content) {
+    start([=](const Say &) {
+        if (name.isEmpty() || name.contains('/'))
+            return Result{tr("Invalid file name"), {}};
+        const GraphReply reply = Graph::instance().call(
+            "PUT", Graph::itemUrl(Graph::joinPath(remoteParent, name)) + "/content?@microsoft.graph.conflictBehavior=fail",
+            content.toUtf8(), "text/plain");
+        const QString error = reply.status == 409 ? tr("%1 already exists").arg(name) : reply.error;
+        return Result{error, tr("File created")};
+    });
+}
+
 void Transfer::renameItem(const QString &remotePath, const QString &newName) {
     start([=](const Say &) {
         if (newName.isEmpty() || newName.contains('/'))

@@ -9,7 +9,8 @@ Keys follow Windows and One Commander:
 | `Tab` | Local ⇄ OneDrive (with two panes: switch pane, also `Alt+F`) |
 | `Ctrl+\` | One or two panes |
 | `Ctrl+T` / `Ctrl+W` / `Ctrl+Tab` / `Ctrl+1…9` | New tab here / close / next / go to tab |
-| `Ctrl+N` | New window |
+| `Ctrl+N` | New file or folder: folder, text, Markdown, shell script, empty file |
+| `Ctrl+Shift+N` | New window |
 | `Enter`, `Backspace` / `Alt+↑`, `Alt+←` / `Alt+→` | Open, parent folder, back / forward |
 | `Ctrl+L` / `Alt+D` | Type a path |
 | `` ` `` / `Ctrl+B` | Show or hide the folder columns |
@@ -18,7 +19,7 @@ Keys follow Windows and One Commander:
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy, cut, paste (across tabs too) |
 | `Ctrl+Shift+C` | Copy path |
 | `Alt+C` / `Alt+M` | Copy / move to the other pane (from OneDrive: into the mirror) |
-| `Ctrl+Shift+N`, `F2`, `Delete` | New folder, rename, trash |
+| `F2`, `Delete` | Rename, trash |
 | `Ctrl+R` / `F5`, `Ctrl+H` | Refresh, hidden files |
 | `Ctrl+Shift+L`, `?`, `Ctrl+Q` | Sign out, help, quit |
 

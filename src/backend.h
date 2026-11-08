@@ -16,6 +16,7 @@ public:
     Q_INVOKABLE QString moveItems(const QStringList &paths, const QString &destination);
     Q_INVOKABLE QString trashItems(const QStringList &paths);
     Q_INVOKABLE QString makeFolder(const QString &parent, const QString &name);
+    Q_INVOKABLE QString makeFile(const QString &parent, const QString &name, const QString &content, bool executable);
     Q_INVOKABLE QString renameItem(const QString &path, const QString &newName);
     Q_INVOKABLE QString homePath() const;
     Q_INVOKABLE bool isDir(const QString &path) const;
