@@ -263,9 +263,13 @@ void Account::save() const {
 void Account::changed() {
     Graph::setActive(m_activeId);
     QHash<QString, QString> roots;
-    for (const Entry &each : std::as_const(m_entries))
+    QSet<QString> work;
+    for (const Entry &each : std::as_const(m_entries)) {
         roots.insert(each.profile.id, each.mirror);
-    Mirror::setRoots(roots, m_activeId);
+        if (each.profile.business)
+            work.insert(each.profile.id);
+    }
+    Mirror::setRoots(roots, m_activeId, work);
     emit accountsChanged();
     const QString key = m_activeId + "|" + state();
     if (key != m_lastKey) {

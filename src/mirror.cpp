@@ -14,6 +14,11 @@ namespace {
 QMutex s_mutex;
 QString s_root;
 QHash<QString, QString> s_roots;  // account id -> its folder
+QSet<QString> s_work;
+
+bool inside(const QString &path, const QString &dir) {
+    return path == dir || path.startsWith(dir + '/');
+}
 QPointer<Mirror> s_mirror;
 }  // namespace
 
@@ -31,16 +36,50 @@ QString Mirror::rootFor(const QString &account) {
     return s_roots.value(account);
 }
 
-void Mirror::setRoots(const QHash<QString, QString> &roots, const QString &active) {
+void Mirror::setRoots(const QHash<QString, QString> &roots, const QString &active, const QSet<QString> &work) {
     {
         QMutexLocker lock(&s_mutex);
         s_roots = roots;
+        s_work = work;
         if (roots.value(active) == s_root)
             return;
         s_root = roots.value(active);
     }
     if (s_mirror)
         emit s_mirror->rootChanged();
+}
+
+QString Mirror::ownerOf(const QString &localPath) {
+    const QString path = QDir::cleanPath(localPath);
+    QMutexLocker lock(&s_mutex);
+    for (auto it = s_roots.cbegin(); it != s_roots.cend(); ++it)
+        if (!it.value().isEmpty() && inside(path, QDir::cleanPath(it.value())))
+            return it.key();
+    return {};
+}
+
+QString Mirror::workLeak(const QString &fromAccount, const QStringList &localSources, const QString &toAccount,
+                         const QString &localDest) {
+    const QString to = toAccount.isEmpty() ? ownerOf(localDest) : toAccount;
+    if (to.isEmpty())
+        return {};
+    QMutexLocker lock(&s_mutex);
+    if (s_work.contains(fromAccount) && fromAccount != to)
+        return fromAccount;
+    for (const QString &id : std::as_const(s_work)) {
+        if (id == to)
+            continue;
+        const QString root = QDir::cleanPath(s_roots.value(id));
+        if (root.isEmpty() || root == ".")
+            continue;
+        for (const QString &source : localSources) {
+            const QString path = QDir::cleanPath(source);
+            // A file in the work folder, or a folder that holds it.
+            if (inside(path, root) || inside(root, path))
+                return id;
+        }
+    }
+    return {};
 }
 
 QString Mirror::personalRoot() {

@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "mirror.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -79,6 +80,8 @@ QString Backend::copyOne(const QString &source, const QString &destination) {
 QString Backend::copyItems(const QStringList &paths, const QString &destination) {
     if (!QFileInfo(destination).isDir() || !QFileInfo(destination).isWritable())
         return tr("Cannot write to %1").arg(destination);
+    if (!Mirror::workLeak({}, paths, {}, destination).isEmpty())
+        return tr("Files from a work OneDrive stay in that account; nothing was changed");
     QString errors;
     for (const QString &path : paths) {
         const QString error = copyOne(path, destination);
@@ -91,6 +94,8 @@ QString Backend::copyItems(const QStringList &paths, const QString &destination)
 QString Backend::moveItems(const QStringList &paths, const QString &destination) {
     if (!QFileInfo(destination).isDir() || !QFileInfo(destination).isWritable())
         return tr("Cannot write to %1").arg(destination);
+    if (!Mirror::workLeak({}, paths, {}, destination).isEmpty())
+        return tr("Files from a work OneDrive stay in that account; nothing was changed");
     QString errors;
     for (const QString &path : paths) {
         const QFileInfo info(path);

@@ -32,7 +32,7 @@ Mouse: click selects, `Ctrl`+click toggles a mark, `Shift`+click marks a range, 
 
 Add a personal and a work or school account from the round picture at the top right; it shows the active account, and the others sit beside it, one click (or `Ctrl+Shift+A`) to switch. Every account stays signed in, its sign-in kept in the system keyring, and each tab remembers its folder per account. The list lives in `~/.config/omadrive/accounts.json`. A work account may need its IT admin to approve the app first.
 
-Every OneDrive operation is tied to the account its files were picked in: switching account while a copy, a cut, a drag or a dialog is pending never sends it to the other drive, and copying straight from one account to another is refused. Deleting from OneDrive, or moving files out of it, always asks first and names the drive (for example "OneDrive - SES").
+Every OneDrive operation is tied to the account its files were picked in: switching account while a copy, a cut, a drag or a dialog is pending never sends it to the other drive, and copying straight from one account to another is refused. Deleting from OneDrive, or moving files out of it, always asks first and names the drive (for example "OneDrive - SES"). Files can go into a work account from anywhere, but files from a work account (its OneDrive or its local folder) never go to another account or that account's folder; copying them to an ordinary local folder is still allowed.
 
 ## OneDrive mirror
 

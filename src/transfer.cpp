@@ -230,8 +230,18 @@ Graph *Transfer::graphOf(const QString &account, bool quickJob) {
     return nullptr;
 }
 
+bool Transfer::refuseLeak(const QString &fromAccount, const QStringList &localSources, const QString &toAccount,
+                          const QString &localDest) {
+    if (Mirror::workLeak(fromAccount, localSources, toAccount, localDest).isEmpty())
+        return false;
+    emit finished(tr("Files from a work OneDrive stay in that account; nothing was changed"), {});
+    return true;
+}
+
 void Transfer::download(const QString &account, const QStringList &remotePaths, const QString &localDir,
                         bool removeSource) {
+    if (refuseLeak(account, {}, {}, localDir))
+        return;
     if (Graph *graph = graphOf(account, false))
         downloadAll(graph, remotePaths, [localDir](const QString &) { return localDir; }, false, removeSource);
 }
@@ -275,6 +285,8 @@ void Transfer::downloadAll(Graph *account, const QStringList &remotePaths,
 
 void Transfer::upload(const QString &accountId, const QStringList &localPaths, const QString &remoteDir,
                       bool removeSource) {
+    if (refuseLeak({}, localPaths, accountId, {}))
+        return;
     Graph *account = graphOf(accountId, false);
     if (!account)
         return;

@@ -304,6 +304,16 @@ ApplicationWindow {
         })
         if (items.length === 0)
             return
+        // Work files (SES) never go to another account, nor to its folder here.
+        var leak = mirror.leakFrom(fromRemote ? fromAccount : "", fromRemote ? [] : items,
+                                   toRemote ? toAccount : "", toRemote ? "" : destPath)
+        if (leak) {
+            var target = toRemote ? toAccount : ""
+            if (!target)
+                account.accounts.forEach(function (a) { if (destPath === a.mirror || destPath.indexOf(a.mirror + "/") === 0) target = a.id })
+            say(qsTr("Files from %1 stay there; they can't go to %2").arg(driveOf(leak)).arg(driveOf(target)), true)
+            return
+        }
         if (fromRemote && removeSource && !confirmed && !(toRemote && fromAccount === toAccount)) {
             confirm(qsTr("Move out of %1").arg(driveOf(fromAccount)),
                     qsTr("Move %n items out of %1? They are deleted from OneDrive once copied here.", "", items.length).arg(driveOf(fromAccount)),
@@ -319,7 +329,8 @@ ApplicationWindow {
         } else if ((fromRemote && !fromAccount) || (toRemote && !toAccount)) {
             say(qsTr("Sign in to OneDrive first"), true)
         } else if (fromRemote && toRemote) {
-            say(fromAccount !== toAccount ? qsTr("Copying between two OneDrive accounts is not supported; go through a local folder")
+            say(fromAccount !== toAccount ? qsTr("Copying straight between two OneDrive accounts is not supported; copy from %1 instead")
+                                              .arg(mirror.pathFor(fromAccount, "/").replace(backend.homePath(), "~"))
                                           : qsTr("Copying inside OneDrive is not supported yet"), true)
         } else if (fromRemote) {
             transfer.download(fromAccount, items, destPath, removeSource)

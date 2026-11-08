@@ -66,6 +66,9 @@ private:
     void start(std::function<Result(const Say &)> job);
     void quick(std::function<Result()> job);
     Graph *graphOf(const QString &account, bool quickJob);
+    // True, after reporting it, when the copy would take work files to another account.
+    bool refuseLeak(const QString &fromAccount, const QStringList &localSources, const QString &toAccount,
+                    const QString &localDest);
     void downloadAll(Graph *graph, const QStringList &remotePaths, const std::function<QString(const QString &)> &dirFor,
                      bool merge, bool removeSource);
 

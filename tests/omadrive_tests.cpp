@@ -45,6 +45,35 @@ private slots:
         Mirror::setRoots({}, {});
     }
 
+    void workFilesStayInTheirAccount()
+    {
+        QTemporaryDir dir;
+        const QString p = dir.path() + "/OneDrive-Personal", w = dir.path() + "/OneDrive-SES", docs = dir.path() + "/Docs";
+        QVERIFY(QDir().mkpath(p) && QDir().mkpath(w) && QDir().mkpath(docs));
+        write(w + "/plan.txt", "ses");
+        Mirror::setRoots({{"personal", p}, {"work", w}}, "personal", {"work"});
+
+        // Papers go to SES from anywhere.
+        QVERIFY(Mirror::workLeak({}, {docs + "/paper.pdf"}, "work", {}).isEmpty());
+        QVERIFY(Mirror::workLeak({}, {p + "/paper.pdf"}, "work", {}).isEmpty());
+        QVERIFY(Mirror::workLeak("work", {}, {}, docs).isEmpty());
+        QVERIFY(Mirror::workLeak("work", {}, {}, w + "/sub").isEmpty());
+        // SES files never reach the personal account or its folder.
+        QCOMPARE(Mirror::workLeak("work", {}, "personal", {}), QString("work"));
+        QCOMPARE(Mirror::workLeak("work", {}, {}, p + "/x"), QString("work"));
+        QCOMPARE(Mirror::workLeak({}, {w + "/plan.txt"}, "personal", {}), QString("work"));
+        QCOMPARE(Mirror::workLeak({}, {dir.path()}, "personal", {}), QString("work"));
+
+        Backend backend;
+        QVERIFY(!backend.copyItems({w + "/plan.txt"}, p).isEmpty());
+        QVERIFY(!QFile::exists(p + "/plan.txt"));
+        Transfer transfer;
+        QSignalSpy finished(&transfer, &Transfer::finished);
+        transfer.upload("personal", {w + "/plan.txt"}, "/", false);
+        QCOMPARE(finished.count(), 1);
+        Mirror::setRoots({}, {});
+    }
+
     void copyNeverOverwrites()
     {
         QTemporaryDir dir;
