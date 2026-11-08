@@ -46,6 +46,35 @@ Originals are never overwritten: name clashes get a ` (2)` suffix.
 
 `omarchy-plugin/install.sh` adds a OneDrive icon to the Omarchy bar, beside the tray. Its panel lists the files most recently changed in each account, with the storage used; a tick marks files on this device, which open from the mirror, and the rest open on the web. Click opens the panel, right-click checks now, middle-click opens omadrive; in the panel `r` checks and `o` opens omadrive. It runs `omadrive --recent N`, which prints the same as JSON; it reads OneDrive's change feed, so the first check reads the whole drive (about half a minute), and later ones only what changed, cached in `~/.cache/omadrive/recent/`. It checks when opened and every five minutes, which its bar settings can turn off.
 
+## Agents (CLI and MCP)
+
+`omadrive agent <command>` is a headless, JSON interface over the same accounts, sign-in and safety as the app, for agents to use:
+
+```
+omadrive agent accounts
+omadrive agent list /Documents [--account <id|email>]
+omadrive agent stat <path>            omadrive agent search <query>
+omadrive agent cat <file>             omadrive agent download <file> [--dest <dir>]
+omadrive agent upload <localFile> <remoteParent>
+omadrive agent mkdir <remoteParent> <name>
+omadrive agent rename <path> <newName>
+omadrive agent trash <path>
+omadrive agent share <path> [--edit] [--scope anonymous|organization]
+```
+
+Each command names its account (the active one by default) and prints one JSON object, `{"ok":true,…}` or `{"ok":false,"error":…}`. The account safety is enforced here, so it holds for every caller:
+
+- Work files never leave their account: a file from a work OneDrive (its drive or its mirror folder) cannot be uploaded into, or downloaded into the mirror of, another account.
+- **A work (e.g. SES) account may write only in your own personal OneDrive, never in a SharePoint shared library mounted into it.** `upload`, `mkdir`, `rename` and `trash` check the target's drive first and refuse anything on a SharePoint site. Reading a shared library is still allowed.
+
+`mcp/omadrive-mcp.mjs` is a dependency-free MCP (Model Context Protocol) server over stdio that exposes these as tools (`onedrive_list`, `onedrive_read`, `onedrive_upload`, …), for any MCP client. It runs `omadrive agent` under the hood, so the same rules apply. Register it with GitHub Copilot CLI:
+
+```
+copilot mcp add omadrive --env OMADRIVE_BIN=/usr/bin/omadrive -- node /usr/lib/omadrive/mcp/omadrive-mcp.mjs
+```
+
+`OMADRIVE_BIN` points at the omadrive binary (defaults to `omadrive` on `PATH`). The server needs `nodejs`.
+
 ```
 bin/build     # build to build/omadrive
 bin/test      # Qt Test suite

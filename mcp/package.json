@@ -1,0 +1,8 @@
+{
+  "name": "omadrive-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing omadrive OneDrive operations to agents",
+  "type": "module",
+  "bin": { "omadrive-mcp": "./omadrive-mcp.mjs" },
+  "private": true
+}

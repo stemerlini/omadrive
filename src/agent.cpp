@@ -1,0 +1,460 @@
+#include "agent.h"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QStandardPaths>
+#include <QTemporaryDir>
+#include <QTextStream>
+#include <QUrl>
+
+#include "graph.h"
+#include "mirror.h"
+#include "recent.h"
+
+// Every command prints a single JSON object. Reusing Graph means these share
+// the app's sign-in, keyring tokens and work-account safety.
+
+namespace {
+
+QTextStream out(stdout);
+
+int emitJson(const QJsonObject &obj) {
+    out << QJsonDocument(obj).toJson(QJsonDocument::Compact) << "\n";
+    out.flush();
+    return obj.value("ok").toBool() ? 0 : 1;
+}
+
+int fail(const QString &message) {
+    return emitJson({{"ok", false}, {"error", message}});
+}
+
+int okWith(QJsonObject obj) {
+    obj.insert("ok", true);
+    return emitJson(obj);
+}
+
+QString configDir() {
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omadrive";
+}
+
+QJsonObject accountsFile() {
+    QFile file(configDir() + "/accounts.json");
+    if (file.open(QIODevice::ReadOnly))
+        return QJsonDocument::fromJson(file.readAll()).object();
+    return {};
+}
+
+// Loads the roots and the work-account set so Mirror::workLeak works without
+// the GUI, and returns the chosen account entry (the active one by default).
+QJsonObject resolveAccounts(const QString &wanted, QString *error) {
+    const QJsonObject json = accountsFile();
+    const QJsonArray accounts = json.value("accounts").toArray();
+    if (accounts.isEmpty()) {
+        *error = "No OneDrive account is signed in";
+        return {};
+    }
+    const QString active = json.value("active").toString();
+    QHash<QString, QString> roots;
+    QSet<QString> work;
+    QJsonObject chosen;
+    for (const QJsonValue &v : accounts) {
+        const QJsonObject a = v.toObject();
+        const QString id = a.value("id").toString();
+        roots.insert(id, a.value("mirror").toString());
+        if (a.value("business").toBool())
+            work.insert(id);
+        const bool match = wanted.isEmpty() ? id == active
+                                            : id == wanted || a.value("email").toString().compare(wanted, Qt::CaseInsensitive) == 0;
+        if (match && chosen.isEmpty())
+            chosen = a;
+    }
+    Mirror::setRoots(roots, chosen.value("id").toString(active), work);
+    if (chosen.isEmpty())
+        *error = wanted.isEmpty() ? "No active OneDrive account" : QString("No account matches '%1'").arg(wanted);
+    return chosen;
+}
+
+// A signed-in Graph for the chosen account, or null with an error set.
+std::unique_ptr<Graph> graphFor(const QString &wanted, QJsonObject *account, QString *error) {
+    *account = resolveAccounts(wanted, error);
+    if (account->isEmpty())
+        return nullptr;
+    auto graph = std::make_unique<Graph>(account->value("id").toString());
+    if (!graph->restore(error)) {
+        if (error->isEmpty())
+            *error = "That account is not signed in here";
+        return nullptr;
+    }
+    return graph;
+}
+
+QJsonObject itemJson(const QJsonObject &item) {
+    const bool folder = item.contains("folder");
+    QString stamp = item.value("fileSystemInfo").toObject().value("lastModifiedDateTime").toString();
+    if (stamp.isEmpty())
+        stamp = item.value("lastModifiedDateTime").toString();
+    return QJsonObject{
+        {"name", item.value("name").toString()},
+        {"type", folder ? "folder" : "file"},
+        {"size", item.value("size").toVariant().toLongLong()},
+        {"changed", stamp},
+        {"childCount", folder ? item.value("folder").toObject().value("childCount").toInt() : 0},
+        {"webUrl", item.value("webUrl").toString()},
+    };
+}
+
+// A OneDrive path argument: "" and "/" both mean the drive root.
+QString normalisePath(const QString &path) {
+    QString p = path.trimmed();
+    if (!p.startsWith('/'))
+        p = "/" + p;
+    while (p.endsWith('/') && p.size() > 1)
+        p.chop(1);
+    return p == "/" ? QString() : p;
+}
+
+// A work (SES) account may write only in the user's own OneDrive, never in a
+// SharePoint shared library mounted into it: those appear as items whose drive
+// is a SharePoint site, not the user's drive. Returns an error message when the
+// target is on another drive, or empty when the write is allowed. Personal
+// drives have no shared libraries, so they always pass.
+QString sharePointGuard(Graph &graph, const QJsonObject &account, const QString &targetPath) {
+    if (!account.value("business").toBool())
+        return {};
+    const GraphReply mine = graph.call("GET", "https://graph.microsoft.com/v1.0/me/drive?$select=id");
+    if (!mine.ok())
+        return mine.error;
+    const QString ownDrive = mine.json().value("id").toString();
+    const QString path = normalisePath(targetPath);
+    if (path.isEmpty())
+        return {};  // the drive root is always the user's own
+    const GraphReply item = graph.call("GET", Graph::itemUrl(path) + "?$select=id,remoteItem,parentReference");
+    if (!item.ok())
+        return item.error;
+    const QJsonObject obj = item.json();
+    // A mounted shared folder carries a remoteItem pointing at the site drive;
+    // anything already inside one has that site as its parent drive.
+    const QJsonObject ref = obj.contains("remoteItem")
+        ? obj.value("remoteItem").toObject().value("parentReference").toObject()
+        : obj.value("parentReference").toObject();
+    const QString driveId = ref.value("driveId").toString();
+    if (!ownDrive.isEmpty() && !driveId.isEmpty() && driveId != ownDrive)
+        return "That folder is a SharePoint shared library; omadrive only writes to your personal OneDrive, "
+               "not the common site";
+    return {};
+}
+
+int cmdAccounts() {
+    const QJsonObject json = accountsFile();
+    const QString active = json.value("active").toString();
+    QJsonArray list;
+    for (const QJsonValue &v : json.value("accounts").toArray()) {
+        const QJsonObject a = v.toObject();
+        const bool business = a.value("business").toBool();
+        list.append(QJsonObject{
+            {"id", a.value("id").toString()},
+            {"name", a.value("name").toString()},
+            {"email", a.value("email").toString()},
+            {"business", business},
+            {"driveName", QString("OneDrive - %1").arg(business ? a.value("org").toString() : QString("Personal"))},
+            {"mirror", a.value("mirror").toString()},
+            {"active", a.value("id").toString() == active},
+        });
+    }
+    return okWith({{"accounts", list}});
+}
+
+int cmdList(const QString &path, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    const QList<QJsonObject> kids = graph->children(normalisePath(path), &error);
+    if (!error.isEmpty())
+        return fail(error);
+    QJsonArray items;
+    for (const QJsonObject &k : kids)
+        items.append(itemJson(k));
+    return okWith({{"account", account.value("id")}, {"path", normalisePath(path).isEmpty() ? "/" : normalisePath(path)},
+                   {"items", items}});
+}
+
+int cmdStat(const QString &path, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    const GraphReply reply = graph->call("GET", Graph::itemUrl(normalisePath(path)));
+    if (!reply.ok())
+        return fail(reply.error);
+    QJsonObject item = itemJson(reply.json());
+    item.insert("path", normalisePath(path).isEmpty() ? "/" : normalisePath(path));
+    return okWith(item);
+}
+
+int cmdSearch(const QString &query, const QString &wanted) {
+    if (query.trimmed().isEmpty())
+        return fail("Search needs a query");
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    const QString url = "https://graph.microsoft.com/v1.0/me/drive/root/search(q='"
+        + QString(QUrl::toPercentEncoding(query.trimmed())) + "')?$top=50&$select=name,size,folder,file,"
+                                                              "lastModifiedDateTime,fileSystemInfo,webUrl,parentReference";
+    const GraphReply reply = graph->call("GET", url);
+    if (!reply.ok())
+        return fail(reply.error);
+    QJsonArray items;
+    for (const QJsonValue &v : reply.json().value("value").toArray()) {
+        const QJsonObject hit = v.toObject();
+        QJsonObject item = itemJson(hit);
+        const QString parent = hit.value("parentReference").toObject().value("path").toString();
+        const int colon = parent.indexOf("root:");
+        if (colon >= 0) {
+            const QString folder = QUrl::fromPercentEncoding(parent.mid(colon + 5).toUtf8());
+            item.insert("path", Graph::joinPath(folder.isEmpty() ? "/" : folder, hit.value("name").toString()));
+        }
+        items.append(item);
+    }
+    return okWith({{"account", account.value("id")}, {"items", items}});
+}
+
+// Downloads one file to destDir (a temp dir when empty); returns its local path.
+int cmdDownload(const QString &path, const QString &destArg, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    const QString remote = normalisePath(path);
+    if (remote.isEmpty())
+        return fail("Cannot download the drive root; give a file path");
+
+    QString dest = destArg.trimmed();
+    if (dest.isEmpty())
+        dest = QDir::tempPath() + "/omadrive-agent";
+    // Downloading into another account's mirror would move work files across.
+    const QString leak = Mirror::workLeak(account.value("id").toString(), {}, {}, dest);
+    if (!leak.isEmpty())
+        return fail("Files from a work OneDrive stay in that account; nothing was changed");
+    if (!QDir().mkpath(dest))
+        return fail(QString("Cannot create %1").arg(dest));
+
+    const GraphReply meta = graph->call("GET", Graph::itemUrl(remote));
+    if (!meta.ok())
+        return fail(meta.error);
+    const QJsonObject item = meta.json();
+    if (item.contains("folder"))
+        return fail("That is a folder; download individual files");
+    const QString url = item.value("@microsoft.graph.downloadUrl").toString();
+    if (url.isEmpty())
+        return fail("OneDrive gave no download link");
+    const QString target = dest + "/" + item.value("name").toString();
+    if (!graph->download(QUrl(url), target, [](qint64) {}, &error))
+        return fail(error);
+    return okWith({{"account", account.value("id")}, {"local", target},
+                   {"size", item.value("size").toVariant().toLongLong()}});
+}
+
+// Prints a text file's contents inline (for agents to read small files).
+int cmdCat(const QString &path, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    const QString remote = normalisePath(path);
+    if (remote.isEmpty())
+        return fail("Give a file path");
+    const GraphReply meta = graph->call("GET", Graph::itemUrl(remote));
+    if (!meta.ok())
+        return fail(meta.error);
+    const QJsonObject item = meta.json();
+    if (item.contains("folder"))
+        return fail("That is a folder");
+    if (item.value("size").toVariant().toLongLong() > 1024 * 1024)
+        return fail("File is larger than 1 MB; download it instead");
+    const QString url = item.value("@microsoft.graph.downloadUrl").toString();
+    if (url.isEmpty())
+        return fail("OneDrive gave no download link");
+    // The download URL is pre-authenticated; fetch it like cmdDownload does,
+    // since the Graph /content endpoint redirects to a host that rejects the
+    // bearer token.
+    QTemporaryDir dir;
+    const QString file = dir.path() + "/content";
+    if (!graph->download(QUrl(url), file, [](qint64) {}, &error))
+        return fail(error);
+    QFile f(file);
+    if (!f.open(QIODevice::ReadOnly))
+        return fail("Could not read the downloaded file");
+    const QByteArray body = f.readAll();
+    if (body.contains('\0'))
+        return fail("File is not text; download it instead");
+    return okWith({{"account", account.value("id")}, {"path", remote}, {"text", QString::fromUtf8(body)}});
+}
+
+int cmdUpload(const QString &localFile, const QString &remoteParent, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    const QFileInfo info(localFile);
+    if (!info.exists() || !info.isFile())
+        return fail(QString("No such file: %1").arg(localFile));
+    // Uploading a file that lives in another work account's folder would move
+    // work files across accounts.
+    const QString leak = Mirror::workLeak({}, {info.absoluteFilePath()}, account.value("id").toString(), {});
+    if (!leak.isEmpty())
+        return fail("Files from a work OneDrive stay in that account; nothing was changed");
+    const QString blocked = sharePointGuard(*graph, account, remoteParent);
+    if (!blocked.isEmpty())
+        return fail(blocked);
+    if (!graph->uploadFile(info.absoluteFilePath(), normalisePath(remoteParent), [](qint64) {}, &error))
+        return fail(error);
+    return okWith({{"account", account.value("id")},
+                   {"path", Graph::joinPath(normalisePath(remoteParent).isEmpty() ? "/" : normalisePath(remoteParent),
+                                            info.fileName())}});
+}
+
+int cmdMkdir(const QString &remoteParent, const QString &name, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    if (name.isEmpty() || name.contains('/'))
+        return fail("Invalid folder name");
+    const QString blocked = sharePointGuard(*graph, account, remoteParent);
+    if (!blocked.isEmpty())
+        return fail(blocked);
+    const QString made = graph->createFolder(normalisePath(remoteParent), name, true, &error);
+    if (!error.isEmpty())
+        return fail(error);
+    return okWith({{"account", account.value("id")},
+                   {"path", Graph::joinPath(normalisePath(remoteParent).isEmpty() ? "/" : normalisePath(remoteParent), made)}});
+}
+
+int cmdRename(const QString &path, const QString &newName, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    if (newName.isEmpty() || newName.contains('/'))
+        return fail("Invalid name");
+    const QString blocked = sharePointGuard(*graph, account, path);
+    if (!blocked.isEmpty())
+        return fail(blocked);
+    const GraphReply reply = graph->call(
+        "PATCH", Graph::itemUrl(normalisePath(path)),
+        QJsonDocument(QJsonObject{{"name", newName}}).toJson(QJsonDocument::Compact));
+    if (!reply.ok())
+        return fail(reply.status == 409 ? QString("%1 already exists").arg(newName) : reply.error);
+    return okWith({{"account", account.value("id")}, {"name", newName}});
+}
+
+int cmdTrash(const QString &path, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    const QString remote = normalisePath(path);
+    if (remote.isEmpty())
+        return fail("Cannot delete the drive root");
+    const QString blocked = sharePointGuard(*graph, account, path);
+    if (!blocked.isEmpty())
+        return fail(blocked);
+    const GraphReply reply = graph->call("DELETE", Graph::itemUrl(remote));
+    if (!reply.ok())
+        return fail(reply.error);
+    return okWith({{"account", account.value("id")}, {"trashed", remote}});
+}
+
+int cmdShare(const QString &path, bool edit, const QString &scope, const QString &wanted) {
+    QJsonObject account;
+    QString error;
+    auto graph = graphFor(wanted, &account, &error);
+    if (!graph)
+        return fail(error);
+    QJsonObject body{{"type", edit ? "edit" : "view"}};
+    if (!scope.isEmpty())
+        body.insert("scope", scope);
+    const GraphReply reply = graph->call("POST", Graph::itemUrl(normalisePath(path)) + "/createLink",
+                                         QJsonDocument(body).toJson(QJsonDocument::Compact));
+    const QString link = reply.json().value("link").toObject().value("webUrl").toString();
+    if (!reply.ok() || link.isEmpty())
+        return fail(reply.ok() ? QString("OneDrive gave no link") : reply.error);
+    return okWith({{"account", account.value("id")}, {"link", link}, {"canEdit", edit}});
+}
+
+// --account/-a <id|email>, --dest <dir>, --scope <s>, --edit; the rest are positionals.
+struct Args {
+    QStringList positional;
+    QString account, dest, scope;
+    bool edit = false;
+};
+
+Args parse(const QStringList &args) {
+    Args a;
+    for (int i = 0; i < args.size(); ++i) {
+        const QString &arg = args[i];
+        if ((arg == "--account" || arg == "-a") && i + 1 < args.size())
+            a.account = args[++i];
+        else if (arg == "--dest" && i + 1 < args.size())
+            a.dest = args[++i];
+        else if (arg == "--scope" && i + 1 < args.size())
+            a.scope = args[++i];
+        else if (arg == "--edit")
+            a.edit = true;
+        else
+            a.positional << arg;
+    }
+    return a;
+}
+
+QString pos(const Args &a, int i) { return i < a.positional.size() ? a.positional[i] : QString(); }
+
+}  // namespace
+
+int runAgent(const QStringList &rawArgs) {
+    if (rawArgs.isEmpty())
+        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share> ...");
+    const QString command = rawArgs.first();
+    const Args a = parse(rawArgs.mid(1));
+
+    if (command == "accounts")
+        return cmdAccounts();
+    if (command == "recent")
+        return printRecent(pos(a, 0).toInt());
+    if (command == "list")
+        return cmdList(pos(a, 0), a.account);
+    if (command == "stat")
+        return cmdStat(pos(a, 0), a.account);
+    if (command == "search")
+        return cmdSearch(pos(a, 0), a.account);
+    if (command == "cat")
+        return cmdCat(pos(a, 0), a.account);
+    if (command == "download")
+        return cmdDownload(pos(a, 0), a.dest, a.account);
+    if (command == "upload")
+        return cmdUpload(pos(a, 0), pos(a, 1), a.account);
+    if (command == "mkdir")
+        return cmdMkdir(pos(a, 0), pos(a, 1), a.account);
+    if (command == "rename")
+        return cmdRename(pos(a, 0), pos(a, 1), a.account);
+    if (command == "trash")
+        return cmdTrash(pos(a, 0), a.account);
+    if (command == "share")
+        return cmdShare(pos(a, 0), a.edit, a.scope, a.account);
+    return fail(QString("Unknown command: %1").arg(command));
+}

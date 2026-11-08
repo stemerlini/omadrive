@@ -9,6 +9,7 @@
 #include <QUrl>
 
 #include "account.h"
+#include "agent.h"
 #include "backend.h"
 #include "folderlist.h"
 #include "mirror.h"
@@ -24,6 +25,14 @@ int main(int argc, char *argv[]) {
         QCoreApplication app(argc, argv);
         app.setApplicationName("omadrive");
         return printRecent(argc >= 3 ? QByteArray(argv[2]).toInt() : 10);
+    }
+    if (argc >= 2 && QByteArray(argv[1]) == "agent") {
+        QCoreApplication app(argc, argv);
+        app.setApplicationName("omadrive");
+        QStringList args;
+        for (int i = 2; i < argc; ++i)
+            args << QString::fromLocal8Bit(argv[i]);
+        return runAgent(args);
     }
     QGuiApplication app(argc, argv);
     app.setApplicationName("omadrive");

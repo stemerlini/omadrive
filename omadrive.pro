@@ -4,7 +4,8 @@ CONFIG += c++17 release
 TARGET = omadrive
 TEMPLATE = app
 
-HEADERS += src/recent.h \
+HEADERS += src/agent.h \
+    src/recent.h \
     src/account.h \
     src/backend.h \
     src/folderlist.h \
@@ -16,7 +17,8 @@ HEADERS += src/recent.h \
     src/transfer.h \
     src/translator.h
 
-SOURCES += src/recent.cpp \
+SOURCES += src/agent.cpp \
+    src/recent.cpp \
     src/main.cpp \
     src/account.cpp \
     src/backend.cpp \

@@ -5,7 +5,8 @@ pkgdesc='Two-pane file manager for local folders and OneDrive'
 arch=('x86_64' 'aarch64')
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal' 'libsecret' 'qt6-svg')
-optdepends=('qt6-webengine: PDF previews (QtPdf)')
+optdepends=('qt6-webengine: PDF previews (QtPdf)'
+            'nodejs: MCP server for agents (omadrive agent / omadrive-mcp)')
 makedepends=('gcc' 'make')
 source=()
 sha256sums=()
@@ -19,6 +20,8 @@ package() {
   cd "$startdir/.."
   install -Dm755 build/omadrive "$pkgdir/usr/bin/omadrive"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm755 "$startdir/../mcp/omadrive-mcp.mjs" "$pkgdir/usr/lib/omadrive/mcp/omadrive-mcp.mjs"
+  install -Dm644 "$startdir/../mcp/package.json" "$pkgdir/usr/lib/omadrive/mcp/package.json"
   install -Dm644 "$startdir/omadrive.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/omadrive.svg"
   install -Dm644 "$startdir/omadrive.desktop" "$pkgdir/usr/share/applications/omadrive.desktop"
 }
