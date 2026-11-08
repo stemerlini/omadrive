@@ -4,6 +4,7 @@
 #include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QtQml>
 #include <QQuickStyle>
 #include <QUrl>
 
@@ -36,11 +37,11 @@ int main(int argc, char *argv[]) {
 
     Theme theme;
     Backend backend;
-    FolderList left, right;
-    left.setPath(backend.homePath());
-    right.setPath(backend.homePath());
     Account account;
-    OneDriveList oneDrive(&account);
+    OneDriveList::setAccount(&account);
+    // Tabs create their own lists from QML.
+    qmlRegisterType<FolderList>("Omadrive", 1, 0, "FolderList");
+    qmlRegisterType<OneDriveList>("Omadrive", 1, 0, "OneDriveList");
     Transfer transfer;
     Mirror mirror;
     Preview preview;
@@ -51,10 +52,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &backend);
-    engine.rootContext()->setContextProperty("leftFolder", &left);
-    engine.rootContext()->setContextProperty("rightFolder", &right);
     engine.rootContext()->setContextProperty("account", &account);
-    engine.rootContext()->setContextProperty("oneDrive", &oneDrive);
     engine.rootContext()->setContextProperty("transfer", &transfer);
     engine.rootContext()->setContextProperty("mirror", &mirror);
     engine.rootContext()->setContextProperty("preview", &preview);

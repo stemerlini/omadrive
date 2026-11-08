@@ -3,23 +3,28 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// One side of the commander. Files are marked with Space or Ctrl/Shift+click;
-// actions apply to the marked files, or to the highlighted one when nothing
-// is marked. Rows can be dragged to the other pane, a folder, or other apps.
+// Shows one tab. Files are marked with Ins or Ctrl/Shift+click; actions apply
+// to the marked files, or to the highlighted one when nothing is marked. Rows
+// can be dragged to the other pane, a tab, a folder, or other apps.
 Rectangle {
     id: pane
 
-    required property var folder
-    property string title: ""
+    // A tab: { remote, folder, selected }. `selected` is the highlighted path,
+    // restored when the tab is shown again.
+    required property var tab
+    readonly property var folder: tab.folder
+    // OneDrive tabs: paths are OneDrive paths and need a sign-in.
+    readonly property bool remote: tab.remote
     property bool active: false
+    // Whether a second pane is open for F5/F6.
+    property bool paired: false
+    property bool canPaste: false
     property var marked: ({})
     readonly property int markedCount: Object.keys(marked).length
     property string lastPath: ""
     property int lastIndex: 0
     property int anchorIndex: 0
     property bool resetting: false
-    // The OneDrive pane: paths are OneDrive paths and it needs a sign-in.
-    property bool remote: false
     readonly property bool needsSignIn: remote && !account.signedIn
     readonly property string currentItemPath: list.currentItem ? list.currentItem.path : ""
     readonly property string currentItemCloud: list.currentItem ? list.currentItem.cloud : ""
@@ -37,6 +42,23 @@ Rectangle {
     border.color: pageDrop.containsDrag ? theme.accent : active ? theme.accent : "#2a2a2e"
 
     function focusList() { list.forceActiveFocus() }
+    function remember() { tab.selected = currentItemPath }
+
+    function restoreHighlight() {
+        var index = folder.indexOfPath(lastPath)
+        if (index < 0)
+            index = Math.max(0, Math.min(lastIndex, list.count - 1))
+        list.currentIndex = index
+        resetting = false
+    }
+
+    onTabChanged: {
+        resetting = true
+        clearMarks()
+        lastPath = tab.selected
+        lastIndex = 0
+        Qt.callLater(restoreHighlight)
+    }
     function currentPath() { return folder.pathAt(list.currentIndex) }
 
     function targets() {
@@ -152,13 +174,7 @@ Rectangle {
         function onModelAboutToBeReset() { pane.resetting = true }
         function onModelReset() {
             // Wait for the ListView to settle before restoring the highlight.
-            Qt.callLater(function () {
-                var index = pane.folder.indexOfPath(pane.lastPath)
-                if (index < 0)
-                    index = Math.max(0, Math.min(pane.lastIndex, list.count - 1))
-                list.currentIndex = index
-                pane.resetting = false
-            })
+            Qt.callLater(pane.restoreHighlight)
         }
     }
 
@@ -179,8 +195,21 @@ Rectangle {
             onTriggered: pane.menuAction("mirror")
         }
         MenuSeparator {}
-        MenuItem { text: qsTr("Copy to the other pane"); onTriggered: pane.menuAction("copy") }
-        MenuItem { text: qsTr("Move to the other pane"); onTriggered: pane.menuAction("move") }
+        MenuItem { text: qsTr("Copy"); onTriggered: pane.menuAction("clipCopy") }
+        MenuItem { text: qsTr("Cut"); onTriggered: pane.menuAction("clipCut") }
+        MenuItem { text: qsTr("Paste"); enabled: pane.canPaste; onTriggered: pane.menuAction("paste") }
+        MenuItem {
+            text: qsTr("Copy to the other pane")
+            visible: pane.paired
+            height: visible ? implicitHeight : 0
+            onTriggered: pane.menuAction("copy")
+        }
+        MenuItem {
+            text: qsTr("Move to the other pane")
+            visible: pane.paired
+            height: visible ? implicitHeight : 0
+            onTriggered: pane.menuAction("move")
+        }
         MenuSeparator {}
         MenuItem { text: qsTr("Rename"); onTriggered: pane.menuAction("rename") }
         MenuItem { text: qsTr("New folder"); onTriggered: pane.menuAction("mkdir") }
@@ -194,52 +223,48 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 4
-            Label {
-                text: pane.remote && account.signedIn && account.name !== "" ? pane.title + " · " + account.name : pane.title
-                font.bold: true
-                color: pane.active ? theme.accent : "#9a9aa0"
-            }
-            Item { Layout.fillWidth: true }
-            ToolButton { text: "↑"; implicitWidth: 36; onClicked: { pane.focusRequested(); pane.goUp() } }
-            ToolButton { text: "⟳"; implicitWidth: 36; onClicked: { pane.focusRequested(); pane.folder.refresh() } }
-            ToolButton { text: "+"; implicitWidth: 36; onClicked: { pane.focusRequested(); pane.menuAction("mkdir") } }
-        }
+            spacing: 2
 
-        Flickable {
-            id: crumbs
-            Layout.fillWidth: true
-            implicitHeight: crumbRow.implicitHeight
-            contentWidth: crumbRow.implicitWidth
-            contentHeight: crumbRow.implicitHeight
-            clip: true
-            interactive: contentWidth > width
-            onContentWidthChanged: contentX = Math.max(0, contentWidth - width)
+            Flickable {
+                id: crumbs
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                implicitHeight: crumbRow.implicitHeight
+                contentWidth: crumbRow.implicitWidth
+                contentHeight: crumbRow.implicitHeight
+                clip: true
+                interactive: contentWidth > width
+                onContentWidthChanged: contentX = Math.max(0, contentWidth - width)
 
-            Row {
-                id: crumbRow
-                Repeater {
-                    model: pane.segments.length + 1
-                    delegate: Row {
-                        id: crumb
-                        required property int index
-                        Label {
-                            visible: crumb.index > 0
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "›"
-                            color: "#5a5a60"
-                        }
-                        Label {
-                            padding: 4
-                            text: crumb.index === 0 ? (pane.remote ? "OneDrive" : "/") : pane.segments[crumb.index - 1]
-                            color: crumb.index === pane.segments.length ? "#e6e6e6" : theme.accent
-                            font.underline: crumbHover.hovered
-                            HoverHandler { id: crumbHover; cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: { pane.focusRequested(); pane.goTo(crumb.index) } }
+                Row {
+                    id: crumbRow
+                    Repeater {
+                        model: pane.segments.length + 1
+                        delegate: Row {
+                            id: crumb
+                            required property int index
+                            Label {
+                                visible: crumb.index > 0
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "›"
+                                color: "#5a5a60"
+                            }
+                            Label {
+                                padding: 4
+                                text: crumb.index === 0 ? (pane.remote ? "OneDrive" : "/") : pane.segments[crumb.index - 1]
+                                color: crumb.index === pane.segments.length ? "#e6e6e6" : theme.accent
+                                font.underline: crumbHover.hovered
+                                HoverHandler { id: crumbHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: { pane.focusRequested(); pane.goTo(crumb.index) } }
+                            }
                         }
                     }
                 }
             }
+
+            ToolButton { text: "↑"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Parent folder"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.goUp() } }
+            ToolButton { text: "↻"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("Refresh"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.folder.refresh() } }
+            ToolButton { text: "+"; implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus; ToolTip.text: qsTr("New folder"); ToolTip.visible: hovered; ToolTip.delay: 500; onClicked: { pane.focusRequested(); pane.menuAction("mkdir") } }
         }
 
         Label {

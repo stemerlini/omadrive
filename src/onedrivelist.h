@@ -17,7 +17,9 @@ class OneDriveList : public QAbstractListModel {
 public:
     enum Roles { NameRole = Qt::UserRole + 1, PathRole, IsDirRole, SizeTextRole, ModifiedRole, CloudRole };
 
-    explicit OneDriveList(Account *account, QObject *parent = nullptr);
+    // Each tab has its own list; they share the account set here and one cache.
+    static void setAccount(Account *account);
+    explicit OneDriveList(QObject *parent = nullptr);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -63,8 +65,8 @@ private:
     QString m_path = "/", m_target = "/", m_error;
     bool m_loading = false, m_prefetching = false;
     QVector<Entry> m_entries;
-    // Listings seen so far: a revisited folder shows at once and is then
-    // checked against OneDrive in the background.
-    QHash<QString, QVector<Entry>> m_cache;
+    // Listings seen so far, shared by every tab: a revisited folder shows at
+    // once and is then checked against OneDrive in the background.
+    static QHash<QString, QVector<Entry>> &cache();
     QStringList m_prefetchQueue;
 };

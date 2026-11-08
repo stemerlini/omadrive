@@ -18,6 +18,7 @@ public:
     Q_INVOKABLE QString makeFolder(const QString &parent, const QString &name);
     Q_INVOKABLE QString renameItem(const QString &path, const QString &newName);
     Q_INVOKABLE QString homePath() const;
+    Q_INVOKABLE bool isDir(const QString &path) const;
     Q_INVOKABLE void openExternally(const QString &path);
 
     static QString uniquePath(const QString &directory, const QString &name);

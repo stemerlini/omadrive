@@ -22,13 +22,29 @@ struct Listing {
 
 }  // namespace
 
-OneDriveList::OneDriveList(Account *account, QObject *parent) : QAbstractListModel(parent), m_account(account) {
-    connect(account, &Account::stateChanged, this, [this] {
+namespace {
+Account *s_account = nullptr;
+}
+
+void OneDriveList::setAccount(Account *account) {
+    s_account = account;
+}
+
+QHash<QString, QVector<OneDriveList::Entry>> &OneDriveList::cache() {
+    static QHash<QString, QVector<Entry>> listings;
+    return listings;
+}
+
+OneDriveList::OneDriveList(QObject *parent) : QAbstractListModel(parent), m_account(s_account) {
+    Q_ASSERT(m_account);
+    connect(m_account, &Account::stateChanged, this, [this] {
         if (m_account->signedIn())
-            navigate("/");
+            navigate(m_target);
         else
             clear();
     });
+    if (m_account->signedIn())
+        navigate(m_target);
 }
 
 int OneDriveList::rowCount(const QModelIndex &parent) const {
@@ -56,7 +72,17 @@ QHash<int, QByteArray> OneDriveList::roleNames() const {
 }
 
 void OneDriveList::setPath(const QString &path) {
-    navigate("/" + path.split('/', Qt::SkipEmptyParts).join('/'));
+    const QString clean = "/" + path.split('/', Qt::SkipEmptyParts).join('/');
+    if (m_account->signedIn()) {
+        navigate(clean);
+        return;
+    }
+    // Remembered until the sign-in finishes, e.g. a tab restored at start.
+    m_target = clean;
+    if (m_path != clean) {
+        m_path = clean;
+        emit pathChanged();
+    }
 }
 
 void OneDriveList::up() {
@@ -75,14 +101,14 @@ void OneDriveList::refresh() {
 void OneDriveList::navigate(const QString &path) {
     m_target = path;
     setError({});
-    if (m_cache.contains(path))
-        show(path, m_cache.value(path));
+    if (cache().contains(path))
+        show(path, cache().value(path));
     fetch(path);
 }
 
 void OneDriveList::fetch(const QString &path) {
     if (path == m_target)
-        setLoading(!m_cache.contains(path));
+        setLoading(!cache().contains(path));
 
     auto *watcher = new QFutureWatcher<Listing>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, path] {
@@ -120,7 +146,7 @@ void OneDriveList::received(const QString &path, const QVector<Entry> &entries, 
     if (!m_account->signedIn())
         return;
     if (error.isEmpty())
-        m_cache.insert(path, entries);
+        cache().insert(path, entries);
 
     if (path == m_target) {
         setLoading(false);
@@ -169,12 +195,12 @@ void OneDriveList::prefetch() {
     if (!m_prefetching) {
         m_prefetchQueue.clear();
         for (const Entry &e : std::as_const(m_entries))
-            if (e.isDir && !m_cache.contains(e.path) && m_prefetchQueue.size() < kPrefetchFolders)
+            if (e.isDir && !cache().contains(e.path) && m_prefetchQueue.size() < kPrefetchFolders)
                 m_prefetchQueue << e.path;
     }
     while (!m_prefetchQueue.isEmpty()) {
         const QString next = m_prefetchQueue.takeFirst();
-        if (!m_cache.contains(next)) {
+        if (!cache().contains(next)) {
             m_prefetching = true;
             fetch(next);
             return;
@@ -184,7 +210,7 @@ void OneDriveList::prefetch() {
 }
 
 void OneDriveList::clear() {
-    m_cache.clear();
+    cache().clear();
     m_prefetchQueue.clear();
     m_prefetching = false;
     m_target = "/";

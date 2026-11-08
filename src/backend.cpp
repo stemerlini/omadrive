@@ -141,6 +141,10 @@ QString Backend::renameItem(const QString &path, const QString &newName) {
     return QFile::rename(path, target) ? QString() : tr("Cannot rename %1").arg(info.fileName());
 }
 
+bool Backend::isDir(const QString &path) const {
+    return QFileInfo(path).isDir();
+}
+
 QString Backend::homePath() const {
     return QDir::homePath();
 }
