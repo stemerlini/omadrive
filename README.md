@@ -75,7 +75,10 @@ Status for scripts and the bar is in `~/.cache/omadrive/mount/<accountId>/status
 omadrive agent status <path>          # state, size, modified, eTag and pending uploads (JSON)
 omadrive agent pending [--account …]  # what each mount still has to upload, and its conflicts
 omadrive agent refresh [--account …]  # check OneDrive for changes now
+omadrive agent claim <path> [--as <name|path>]  # take a file so no other machine does
 ```
+
+`claim` is for jobs that several machines watch, such as an inbox folder: it moves the item on OneDrive at once into `<parent>/.claimed/<hostname>/` (`--as` gives another name there, or a whole destination path), and only if OneDrive still has the version this machine saw, so of several machines claiming one file exactly one wins. It prints `{"ok":true,"path":…}` when this machine won, or exits non-zero with `{"ok":false,"reason":"taken"}` when another machine claimed it first or it changed on OneDrive. In a mounted folder the mount makes the move itself (the item shows at its new place straight away and no old rename is replayed), and it refuses a file with changes not yet uploaded, open for writing or in conflict (`"reason":"pending"`).
 
 ## Bar panel
 
@@ -96,13 +99,13 @@ omadrive agent rename <path> <newName>
 omadrive agent trash <path>
 omadrive agent share <path> [--edit] [--scope anonymous|organization]
 omadrive agent status <path>          omadrive agent pending
-omadrive agent refresh
+omadrive agent refresh                omadrive agent claim <path> [--as <name|path>]
 ```
 
 Each command names its account (the active one by default) and prints one JSON object, `{"ok":true,…}` or `{"ok":false,"error":…}`. The account safety is enforced here, so it holds for every caller:
 
 - Work files never leave their account: a file from a work OneDrive (its drive or its mirror folder) cannot be uploaded into, or downloaded into the mirror of, another account.
-- **A work (e.g. SES) account may write only in your own personal OneDrive, never in a SharePoint shared library mounted into it.** `upload`, `mkdir`, `rename` and `trash` check the target's drive first and refuse anything on a SharePoint site. Reading a shared library is still allowed.
+- **A work (e.g. SES) account may write only in your own personal OneDrive, never in a SharePoint shared library mounted into it.** `upload`, `mkdir`, `rename`, `claim` and `trash` check the target's drive first and refuse anything on a SharePoint site. Reading a shared library is still allowed.
 
 `mcp/omadrive-mcp.mjs` is a dependency-free MCP (Model Context Protocol) server over stdio that exposes these as tools (`onedrive_list`, `onedrive_read`, `onedrive_upload`, …), for any MCP client. It runs `omadrive agent` under the hood, so the same rules apply. Register it with GitHub Copilot CLI:
 

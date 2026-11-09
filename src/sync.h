@@ -41,6 +41,8 @@ public:
     // a new file to parentId without ever replacing one there.
     virtual Result upload(const QString &id, const QString &eTag, const QString &parentId, const QString &name,
                           const QString &file, const QDateTime &modified, RemoteItem *out, QString *error) = 0;
+    // The item called name in folder parentId (Gone when there is none).
+    virtual Result lookup(const QString &parentId, const QString &name, RemoteItem *out, QString *error) = 0;
     virtual Result createFolder(const QString &parentId, const QString &name, RemoteItem *out, QString *error) = 0;
     virtual Result move(const QString &id, const QString &eTag, const QString &parentId, const QString &name,
                         RemoteItem *out, QString *error) = 0;
@@ -68,6 +70,11 @@ public:
         qint64 cacheMax = 0;   // bytes of unchanged files to keep; 0 keeps all
         QString host;          // for conflict copies; the host name by default
     };
+    // What claim() did: Claimed (moved, on OneDrive and here), ClaimTaken (gone,
+    // changed on OneDrive since this device saw it, or the destination is in
+    // use), ClaimPending (it or something in it is still waiting to upload,
+    // open for writing, or in conflict), ClaimInvalid or ClaimFailed.
+    enum Claim { Claimed, ClaimTaken, ClaimPending, ClaimInvalid, ClaimFailed };
     struct Stat {
         bool dir = false;
         qint64 size = 0;
@@ -116,6 +123,10 @@ public:
     int rmdir(const QString &path);
     int rename(const QString &from, const QString &to, bool noReplace);
     int setModified(const QString &path, qint64 ms);
+    // Moves the item at from to the path to on OneDrive right away, only if
+    // OneDrive still has the version this device last saw (If-Match), making
+    // the folders on the way. Of several devices claiming one item, one wins.
+    Claim claim(const QString &from, const QString &to, QString *error);
 
     // cloud, local, pending or conflict; empty when there is no such item.
     QString state(const QString &path) const;
@@ -161,6 +172,7 @@ private:
     bool isTransient(const Node &n) const;
     bool moved(const Node &n) const;
     bool needsPush(const Node &n) const;
+    bool busy(const Node &n) const;
     void attach(quint64 key, quint64 parent, const QString &name);
     void detach(quint64 key);
     void erase(quint64 key);

@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
+#include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QUrl>
@@ -496,10 +497,140 @@ int cmdRefresh(const QString &wanted) {
     return okWith({{"account", account.value("id")}, {"mountpoint", mounted}});
 }
 
+// The answer to a claim that did not win: taken (another device has it, or it
+// changed on OneDrive since), pending (changes here not on OneDrive yet), or
+// failed.
+int claimRefused(const QString &reason, const QString &path, const QString &detail = {}) {
+    QString error = detail;
+    if (error.isEmpty())
+        error = reason == "taken"     ? QString("%1 was claimed elsewhere or changed on OneDrive").arg(path)
+              : reason == "pending" ? QString("%1 has changes here that are not on OneDrive yet").arg(path)
+                                    : QString("Could not claim %1").arg(path);
+    return emitJson({{"ok", false}, {"reason", reason}, {"error", error}, {"path", path}});
+}
+
+// Moves an item on OneDrive, only if it is still the version just read, into
+// <parent>/.claimed/<host>/ (or where --as says). Of several machines claiming
+// the same file, exactly one wins. In a mounted folder the mount does it, so
+// its tree follows at once and a file with changes not yet uploaded is refused.
+int cmdClaim(const QString &path, const QString &as, const QString &wanted) {
+    if (path.isEmpty())
+        return fail("Usage: omadrive agent claim <path> [--as <name|path>] [--account <id|email>]");
+    QString error;
+    QJsonObject account = resolveAccounts(wanted, &error);
+    if (account.isEmpty())
+        return fail(error);
+    QString id = account.value("id").toString();
+
+    // A path in a mounted folder belongs to that folder's account.
+    const QString clean = QDir::cleanPath(path);
+    QString mounted, remote;
+    for (const QString &other : accountIds()) {
+        const QString root = mountedAt(other);
+        if (root.isEmpty() || !(clean == root || clean.startsWith(root + "/")))
+            continue;
+        if (other != id) {
+            if (!wanted.isEmpty())
+                return fail("That path is in another account's folder");
+            account = resolveAccounts(other, &error);
+            id = other;
+        }
+        mounted = root;
+        remote = normalisePath(clean.mid(root.size()));
+        break;
+    }
+    if (mounted.isEmpty()) {
+        const QString mirror = QDir::cleanPath(account.value("mirror").toString());
+        const bool inMirror = !account.value("mirror").toString().isEmpty() && clean.startsWith(mirror + "/");
+        // A file on this device outside the account's folder is not on OneDrive.
+        if (!inMirror && QFileInfo(path).isAbsolute() && QFileInfo::exists(path))
+            return fail(QString("%1 is not in a OneDrive folder").arg(path));
+        remote = inMirror ? normalisePath(clean.mid(mirror.size())) : normalisePath(path);
+        mounted = mountedAt(id);
+    }
+    if (remote.isEmpty())
+        return fail("Cannot claim the drive root");
+
+    const QString name = remote.mid(remote.lastIndexOf('/') + 1);
+    QString dest;
+    if (!as.contains('/')) {
+        const QString claimed = Graph::joinPath(Graph::joinPath(Graph::parentPath(remote), ".claimed"),
+                                                QSysInfo::machineHostName());
+        dest = Graph::joinPath(claimed, as.isEmpty() ? name : as);
+    } else {
+        const QString target = QDir::cleanPath(as);
+        dest = !mounted.isEmpty() && target.startsWith(mounted + "/") ? normalisePath(target.mid(mounted.size()))
+                                                                      : normalisePath(target);
+    }
+    if (dest.isEmpty() || dest == remote)
+        return fail("Invalid destination");
+
+    if (!mounted.isEmpty()) {
+        const QByteArray value = dest.toUtf8();
+        if (::setxattr(QFile::encodeName(mounted + remote).constData(), "user.omadrive.claim", value.constData(),
+                       size_t(value.size()), 0)
+            == 0)
+            return okWith({{"account", id}, {"path", mounted + dest}, {"remotePath", dest}, {"mounted", true}});
+        const int e = errno;
+        if (e == ENOENT || e == ESTALE)
+            return claimRefused("taken", mounted + remote);
+        if (e == EBUSY)
+            return claimRefused("pending", mounted + remote);
+        return claimRefused(e == EINVAL ? "invalid" : "failed", mounted + remote,
+                            QString("Could not claim %1: %2; see %3/mount.log")
+                                .arg(mounted + remote, QString::fromLocal8Bit(strerror(e)), SyncCore::cacheDirFor(id)));
+    }
+
+    auto graph = graphFor(id, &account, &error);
+    if (!graph)
+        return fail(error);
+    const QString blocked = sharePointGuard(*graph, account, remote);
+    if (!blocked.isEmpty())
+        return fail(blocked);
+    const GraphReply item = graph->call("GET", Graph::itemUrl(remote) + "?$select=id,eTag,name");
+    if (item.status == 404)
+        return claimRefused("taken", remote);
+    if (!item.ok())
+        return claimRefused("failed", remote, item.error);
+    // The folders on the way, made when missing.
+    QString folder;
+    for (const QString &part : Graph::parentPath(dest).split('/', Qt::SkipEmptyParts)) {
+        const QString next = Graph::joinPath(folder, part);
+        const GraphReply there = graph->call("GET", Graph::itemUrl(next) + "?$select=id,folder");
+        if (there.status == 404) {
+            graph->createFolder(folder, part, true, &error);  // made meanwhile is fine too
+        } else if (!there.ok()) {
+            return claimRefused("failed", remote, there.error);
+        } else if (!there.json().contains("folder")) {
+            return claimRefused("invalid", remote, QString("%1 is not a folder").arg(next));
+        }
+        folder = next;
+    }
+    const GraphReply parent = graph->call("GET", Graph::itemUrl(Graph::parentPath(dest)) + "?$select=id");
+    if (!parent.ok())
+        return claimRefused("failed", remote, parent.error);
+    const QString blockedDest = sharePointGuard(*graph, account, Graph::parentPath(dest));
+    if (!blockedDest.isEmpty())
+        return fail(blockedDest);
+    const QJsonObject body{{"name", dest.mid(dest.lastIndexOf('/') + 1)},
+                           {"parentReference", QJsonObject{{"id", parent.json().value("id").toString()}}}};
+    const GraphReply moved = graph->call(
+        "PATCH",
+        "https://graph.microsoft.com/v1.0/me/drive/items/" + item.json().value("id").toString()
+            + "?@microsoft.graph.conflictBehavior=fail",
+        QJsonDocument(body).toJson(QJsonDocument::Compact), "application/json",
+        {{"If-Match", item.json().value("eTag").toString().toUtf8()}});
+    if (moved.status == 404 || moved.status == 409 || moved.status == 412)
+        return claimRefused("taken", remote);
+    if (!moved.ok())
+        return claimRefused("failed", remote, moved.error);
+    return okWith({{"account", id}, {"path", dest}, {"remotePath", dest}, {"mounted", false}});
+}
+
 // --account/-a <id|email>, --dest <dir>, --scope <s>, --edit; the rest are positionals.
 struct Args {
     QStringList positional;
-    QString account, dest, scope;
+    QString account, dest, scope, as;
     bool edit = false;
 };
 
@@ -511,6 +642,8 @@ Args parse(const QStringList &args) {
             a.account = args[++i];
         else if (arg == "--dest" && i + 1 < args.size())
             a.dest = args[++i];
+        else if (arg == "--as" && i + 1 < args.size())
+            a.as = args[++i];
         else if (arg == "--scope" && i + 1 < args.size())
             a.scope = args[++i];
         else if (arg == "--edit")
@@ -538,7 +671,7 @@ QStringList accountIds() {
 
 int runAgent(const QStringList &rawArgs) {
     if (rawArgs.isEmpty())
-        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share|status|pending|refresh> ...");
+        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share|status|pending|refresh|claim> ...");
     const QString command = rawArgs.first();
     const Args a = parse(rawArgs.mid(1));
 
@@ -572,5 +705,7 @@ int runAgent(const QStringList &rawArgs) {
         return cmdPending(a.account);
     if (command == "refresh")
         return cmdRefresh(a.account);
+    if (command == "claim")
+        return cmdClaim(pos(a, 0), a.as, a.account);
     return fail(QString("Unknown command: %1").arg(command));
 }

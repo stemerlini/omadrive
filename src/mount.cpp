@@ -145,6 +145,14 @@ public:
         return result(reply, error);
     }
 
+    Result lookup(const QString &parentId, const QString &name, RemoteItem *out, QString *error) override {
+        const QString encoded = QString::fromLatin1(QUrl::toPercentEncoding(name));
+        const GraphReply reply = m_graph->call("GET", kItems + parentId + ":/" + encoded + ":?$select=" + kSelect);
+        if (reply.ok())
+            *out = parse(reply.json());
+        return result(reply, error);
+    }
+
     Result createFolder(const QString &parentId, const QString &name, RemoteItem *out, QString *error) override {
         const QJsonObject body{{"name", name}, {"folder", QJsonObject()}, {"@microsoft.graph.conflictBehavior", "fail"}};
         const GraphReply reply = m_graph->call("POST", kItems + parentId + "/children", compact(body));
@@ -242,6 +250,7 @@ std::atomic<bool> g_pullWanted{false};
 const char kState[] = "user.omadrive.state";
 const char kInfo[] = "user.omadrive.info";
 const char kRefresh[] = "user.omadrive.refresh";
+const char kClaim[] = "user.omadrive.claim";
 
 QString qpath(const char *path) {
     return QString::fromUtf8(path);
@@ -440,7 +449,30 @@ int fsListxattr(const char *, char *list, size_t size) {
     return reply(names, list, size);
 }
 
-int fsSetxattr(const char *, const char *name, const char *, size_t, int) {
+// Setting user.omadrive.claim to a path from the folder's root moves the item
+// there on OneDrive straight away (see SyncCore::claim); the result is the
+// error: 0 claimed, ESTALE taken by another device, EBUSY changes still
+// waiting to upload here.
+int fsSetxattr(const char *path, const char *name, const char *value, size_t size, int) {
+    if (std::strcmp(name, kClaim) == 0) {
+        const QString to = QString::fromUtf8(value, qsizetype(size));
+        QString error;
+        switch (g_core->claim(qpath(path), to, &error)) {
+        case SyncCore::Claimed:
+            say(QString("Claimed %1 as %2").arg(qpath(path), to));
+            g_core->wake();
+            return 0;
+        case SyncCore::ClaimTaken:
+            return -ESTALE;
+        case SyncCore::ClaimPending:
+            return -EBUSY;
+        case SyncCore::ClaimInvalid:
+            return -EINVAL;
+        default:
+            say(QString("Claiming %1 failed: %2").arg(qpath(path), error));
+            return -EIO;
+        }
+    }
     if (std::strcmp(name, kRefresh) != 0)
         return -ENOTSUP;
     g_pullWanted = true;

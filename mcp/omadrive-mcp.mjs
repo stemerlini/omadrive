@@ -109,6 +109,12 @@ const tools = [
     run: (a) => runAgent(withAccount(["rename", a.path, a.newName], a.account)),
   },
   {
+    name: "onedrive_claim",
+    description: "Atomically claim a OneDrive item so only one machine processes it: moves it on OneDrive, only if unchanged since read, into <parent>/.claimed/<hostname>/ (or `as`: a new name there, or a full destination path). Returns {ok:true, path} when this machine won; {ok:false, reason:\"taken\"} when another machine got it first (or it changed), reason \"pending\" when a mounted file still has changes to upload. Path is from the drive root or inside a mounted folder.",
+    inputSchema: { type: "object", properties: { path: { type: "string", description: "Item path." }, as: { type: "string", description: "New name inside .claimed/<host>/, or a full destination path. Optional." }, ...accountProp }, required: ["path"] },
+    run: (a) => runAgent(withAccount(a.as ? ["claim", a.path, "--as", a.as] : ["claim", a.path], a.account)),
+  },
+  {
     name: "onedrive_trash",
     description: "Move a OneDrive item to the recycle bin. For a work/SES account this only succeeds for items in your own personal OneDrive, not a SharePoint shared library.",
     inputSchema: { type: "object", properties: { path: { type: "string", description: "Item path from the drive root." }, ...accountProp }, required: ["path"] },

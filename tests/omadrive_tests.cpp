@@ -108,6 +108,13 @@ public:
         *out = items[target].item;
         return Ok;
     }
+    Result lookup(const QString &parentId, const QString &name, RemoteItem *out, QString *) override {
+        const QString id = find(parentId, name);
+        if (id.isEmpty())
+            return Gone;
+        *out = items[id].item;
+        return Ok;
+    }
     Result createFolder(const QString &parentId, const QString &name, RemoteItem *out, QString *) override {
         if (taken(parentId, name))
             return Taken;
@@ -489,6 +496,50 @@ private slots:
         QVERIFY(!SyncCore::mountRefusal("personal", w + "/x", ids).isEmpty());
         QVERIFY(!SyncCore::mountRefusal("personal", dir.path(), ids).isEmpty());
         Mirror::setRoots({}, {});
+    }
+
+    // Watchers on two machines claim the same inbox file: one move wins, on
+    // OneDrive and in the winner's folder, and the other is told it is taken.
+    void claimMovesAFileOnlyOnce()
+    {
+        QTemporaryDir here, there;
+        FakeRemote remote;
+        const QString inbox = remote.addFolder(remote.addFolder("root", "Citadel"), "_inbox");
+        const QString id = remote.addFile(inbox, "paper.pdf", "pdf");
+        SyncCore laptop(&remote, here.path(), syncOptions());
+        SyncCore desktop(&remote, there.path(), syncOptions());
+        QVERIFY(laptop.pull(nullptr));
+        QVERIFY(desktop.pull(nullptr));
+
+        const QString claimed = "/Citadel/_inbox/.claimed/laptop/paper.pdf";
+        QCOMPARE(laptop.claim("/Citadel/_inbox/paper.pdf", claimed, nullptr), SyncCore::Claimed);
+        QCOMPARE(remote.items[id].item.parentId, remote.find(remote.find(inbox, ".claimed"), "laptop"));
+        QCOMPARE(laptop.state("/Citadel/_inbox/paper.pdf"), QString());
+        QCOMPARE(laptop.state(claimed), QString("cloud"));
+        QCOMPARE(laptop.status().value("pending").toInt(), 0);  // nothing left to replay
+
+        // The desktop has not seen the move yet: its eTag is stale.
+        QCOMPARE(desktop.claim("/Citadel/_inbox/paper.pdf", "/Citadel/_inbox/.claimed/desktop/paper.pdf", nullptr),
+                 SyncCore::ClaimTaken);
+        QCOMPARE(remote.items[id].item.parentId, remote.find(remote.find(inbox, ".claimed"), "laptop"));
+        desktop.push(true);
+        QVERIFY(desktop.pull(nullptr));
+        QCOMPARE(desktop.state(claimed), QString("cloud"));
+        QCOMPARE(desktop.status().value("pending").toInt(), 0);
+    }
+
+    // A file still waiting to upload here is not claimed: OneDrive has an older version.
+    void claimRefusesPendingChanges()
+    {
+        QTemporaryDir dir;
+        FakeRemote remote;
+        const QString id = remote.addFile("root", "draft.pdf", "v1");
+        SyncCore core(&remote, dir.path(), syncOptions());
+        QVERIFY(core.pull(nullptr));
+        writeFile(core, "/draft.pdf", "v2");
+        QCOMPARE(core.claim("/draft.pdf", "/.claimed/laptop/draft.pdf", nullptr), SyncCore::ClaimPending);
+        QCOMPARE(remote.items[id].item.parentId, QString("root"));
+        QCOMPARE(core.state("/draft.pdf"), QString("pending"));
     }
 
 private:

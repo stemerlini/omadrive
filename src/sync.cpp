@@ -1212,6 +1212,101 @@ int SyncCore::setModified(const QString &path, qint64 ms) {
     return 0;
 }
 
+// Something here that OneDrive does not have yet, at key or below it.
+bool SyncCore::busy(const Node &n) const {
+    if (needsPush(n) || n.conflict || n.writers > 0)
+        return true;
+    for (const quint64 kid : n.kids)
+        if (busy(m_nodes[kid]))
+            return true;
+    return false;
+}
+
+SyncCore::Claim SyncCore::claim(const QString &from, const QString &to, QString *error) {
+    QString ignored;
+    if (!error)
+        error = &ignored;
+    const QStringList parts = to.split('/', Qt::SkipEmptyParts);
+    if (parts.isEmpty() || std::any_of(parts.cbegin(), parts.cend(), invalidName)) {
+        *error = QString("Invalid destination %1").arg(to);
+        return ClaimInvalid;
+    }
+
+    QMutexLocker lock(&m_mutex);
+    const quint64 key = find(from);
+    if (!key)
+        return ClaimTaken;
+    if (key == kRoot) {
+        *error = "Cannot claim the root";
+        return ClaimInvalid;
+    }
+    if (busy(m_nodes[key]) || m_nodes[key].id.isEmpty())
+        return ClaimPending;
+    const QString id = m_nodes[key].id, eTag = m_nodes[key].eTag;
+
+    // The folders on the way, made on OneDrive when missing.
+    quint64 parent = kRoot;
+    for (int i = 0; i + 1 < parts.size(); ++i) {
+        if (parent == key) {
+            *error = "Cannot move a folder into itself";
+            return ClaimInvalid;
+        }
+        const quint64 existing = child(parent, parts[i]);
+        if (existing) {
+            if (!m_nodes[existing].dir) {
+                *error = QString("%1 is not a folder").arg(parts[i]);
+                return ClaimInvalid;
+            }
+            if (m_nodes[existing].id.isEmpty())
+                return ClaimPending;  // made here, not on OneDrive yet
+            parent = existing;
+            continue;
+        }
+        const QString parentId = m_nodes[parent].id;
+        lock.unlock();
+        RemoteItem made;
+        Remote::Result result = m_remote->createFolder(parentId, parts[i], &made, error);
+        if (result == Remote::Taken)  // made meanwhile, here or elsewhere
+            result = m_remote->lookup(parentId, parts[i], &made, error);
+        lock.relock();
+        if (result != Remote::Ok || !made.dir) {
+            if (result == Remote::Ok)
+                *error = QString("%1 is not a folder").arg(parts[i]);
+            return ClaimFailed;
+        }
+        applyItems({made}, false);
+        parent = m_byId.value(made.id);
+        if (!parent)
+            return ClaimFailed;
+    }
+    if (parent == key) {
+        *error = "Cannot move a folder into itself";
+        return ClaimInvalid;
+    }
+    const QString parentId = m_nodes[parent].id;
+    lock.unlock();
+    RemoteItem moved;
+    const Remote::Result result = m_remote->move(id, eTag, parentId, parts.last(), &moved, error);
+    lock.relock();
+    switch (result) {
+    case Remote::Ok:
+        applyItems({moved}, false);
+        return Claimed;
+    case Remote::Changed:
+    case Remote::Gone:
+        // Moved or changed elsewhere: show OneDrive's version soon.
+        m_refresh.insert(id);
+        m_pullWanted = true;
+        m_wake.wakeAll();
+        return ClaimTaken;
+    case Remote::Taken:
+        return ClaimTaken;
+    default:
+        m_lastError = *error;
+        return ClaimFailed;
+    }
+}
+
 // ---- status
 
 QString SyncCore::state(const QString &path) const {
