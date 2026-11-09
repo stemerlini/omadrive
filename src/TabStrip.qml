@@ -22,7 +22,7 @@ RowLayout {
     signal splitToggled()
     signal dropped(var drop, int index)
     signal helpRequested()
-
+    signal addWorkApp()
     spacing: 4
 
     function countOf(remote) {
@@ -167,5 +167,6 @@ RowLayout {
     AccountBar {
         Layout.leftMargin: 4
         Layout.rightMargin: 4
+        onAddWorkApp: strip.addWorkApp()
     }
 }
