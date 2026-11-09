@@ -94,17 +94,6 @@ Registry &registry() {
     return r;
 }
 
-// Per-account app (client id, tenant). Empty means use auth.json's default.
-struct Apps {
-    QMutex mutex;
-    QHash<QString, QPair<QString, QString>> byId;
-};
-
-Apps &apps() {
-    static Apps a;
-    return a;
-}
-
 // One network thread and manager for the whole app, so HTTP connections stay
 // open between requests instead of paying a new TLS handshake each time.
 struct Io {
@@ -177,28 +166,6 @@ void Graph::setActive(const QString &id) {
 
 Graph::Graph(const QString &id) : m_id(id) {}
 
-void Graph::setApp(const QString &clientId, const QString &tenant) {
-    m_clientId = clientId;
-    m_tenant = tenant;
-}
-
-void Graph::setApps(const QHash<QString, QPair<QString, QString>> &byId) {
-    QMutexLocker lock(&apps().mutex);
-    apps().byId = byId;
-}
-
-QPair<QString, QString> Graph::appFor(const QString &id) {
-    {
-        QMutexLocker lock(&apps().mutex);
-        const auto it = apps().byId.constFind(id);
-        if (it != apps().byId.constEnd() && !it->first.isEmpty()) {
-            QString tenant = it->second.isEmpty() ? QString("common") : it->second;
-            return {it->first, tenant};
-        }
-    }
-    return {config().clientId, config().tenant};
-}
-
 bool Graph::configured() {
     return !config().clientId.isEmpty();
 }
@@ -208,13 +175,9 @@ QString Graph::configPath() {
 }
 
 QString Graph::authorizeUrl(const QString &redirect, const QString &challenge, const QString &state,
-                            const QString &loginHint, const QString &clientId, const QString &tenant) {
-    const QString app = clientId.isEmpty() ? config().clientId : clientId;
-    QString realm = tenant.isEmpty() ? config().tenant : tenant;
-    if (realm.isEmpty())
-        realm = "common";
+                            const QString &loginHint) {
     QUrlQuery query;
-    query.addQueryItem("client_id", app);
+    query.addQueryItem("client_id", config().clientId);
     query.addQueryItem("response_type", "code");
     query.addQueryItem("redirect_uri", redirect);
     query.addQueryItem("response_mode", "query");
@@ -226,7 +189,7 @@ QString Graph::authorizeUrl(const QString &redirect, const QString &challenge, c
         query.addQueryItem("prompt", "select_account");
     else
         query.addQueryItem("login_hint", loginHint);
-    return QString("https://login.microsoftonline.com/%1/oauth2/v2.0/authorize?").arg(realm)
+    return QString("https://login.microsoftonline.com/%1/oauth2/v2.0/authorize?").arg(config().tenant)
         + query.toString(QUrl::FullyEncoded);
 }
 
@@ -294,18 +257,14 @@ GraphReply Graph::send(const QByteArray &verb, const QUrl &url, const QByteArray
 
 // Caller holds the mutex.
 bool Graph::tokenRequest(const QList<QPair<QString, QString>> &form, QString *error) {
-    // A sign-in in progress carries its own app; an established account looks
-    // its up by id. Either falls back to auth.json's default.
-    const QPair<QString, QString> app = m_clientId.isEmpty() ? appFor(m_id)
-                                                             : QPair<QString, QString>{m_clientId, m_tenant.isEmpty() ? QString("common") : m_tenant};
     QUrlQuery query;
-    query.addQueryItem("client_id", app.first);
+    query.addQueryItem("client_id", config().clientId);
     query.addQueryItem("scope", kScope);
     for (const auto &item : form)
         query.addQueryItem(item.first, item.second);
 
     const GraphReply reply = send(
-        "POST", QUrl(QString("https://login.microsoftonline.com/%1/oauth2/v2.0/token").arg(app.second)),
+        "POST", QUrl(QString("https://login.microsoftonline.com/%1/oauth2/v2.0/token").arg(config().tenant)),
         query.toString(QUrl::FullyEncoded).toUtf8(), {{"Content-Type", "application/x-www-form-urlencoded"}});
 
     const QJsonObject json = reply.json();

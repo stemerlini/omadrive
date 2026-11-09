@@ -540,11 +540,6 @@ ApplicationWindow {
             c.job()
             return
         }
-        if (action === "addApp") {
-            if (text.trim().length > 0)
-                account.addAccountWithApp(text.trim(), "")
-            return
-        }
         // Highlight what was just made once the folder reloads.
         if (action === "mkdir" || action === "mkfile")
             c.pane.lastPath = c.folder.replace(/\/$/, "") + "/" + text.trim()
@@ -672,9 +667,6 @@ ApplicationWindow {
                 onNewTab: remote => win.newTab(remote, "")
                 onSplitToggled: win.toggleSplit()
                 onHelpRequested: help.open()
-                onAddWorkApp: prompt.ask("addApp", qsTr("Add work account"),
-                    qsTr("Paste the Microsoft application (client) ID to sign in with. Use this for a work account whose tenant blocks the default app."),
-                    true, "", { })
                 onDropped: (drop, index) => win.dropOnTab(drop, win.tabs[index])
             }
 

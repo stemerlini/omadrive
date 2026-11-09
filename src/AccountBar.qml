@@ -8,8 +8,6 @@ RowLayout {
     id: bar
     spacing: 8
 
-    signal addWorkApp()
-
     readonly property var others: account.accounts.filter(function (a) { return !a.active })
     readonly property var current: {
         var a = account.accounts.filter(function (a) { return a.active })
@@ -169,12 +167,6 @@ RowLayout {
                     text: account.busy ? qsTr("Waiting for the browser…") : qsTr("Add account (work or personal)…")
                     enabled: !account.busy
                     onClicked: { list.close(); account.addAccount() }
-                }
-                AccountAction {
-                    iconName: "menu-adduser"
-                    text: qsTr("Add work account with a custom app ID…")
-                    enabled: !account.busy
-                    onClicked: { list.close(); bar.addWorkApp() }
                 }
                 AccountAction {
                     visible: bar.current !== null

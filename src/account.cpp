@@ -225,8 +225,6 @@ void Account::load() {
         e.profile.org = a.value("org").toString();
         e.profile.business = a.value("business").toBool();
         e.mirror = a.value("mirror").toString();
-        e.clientId = a.value("clientId").toString();
-        e.tenant = a.value("tenant").toString();
         if (e.profile.id.isEmpty() || entry(e.profile.id))
             continue;
         QStringList taken;
@@ -251,15 +249,9 @@ void Account::load() {
 
 void Account::save() const {
     QJsonArray list;
-    for (const Entry &e : m_entries) {
-        QJsonObject o{{"id", e.profile.id}, {"name", e.profile.name}, {"email", e.profile.email},
-                      {"org", e.profile.org}, {"business", e.profile.business}, {"mirror", e.mirror}};
-        if (!e.clientId.isEmpty())
-            o.insert("clientId", e.clientId);
-        if (!e.tenant.isEmpty())
-            o.insert("tenant", e.tenant);
-        list.append(o);
-    }
+    for (const Entry &e : m_entries)
+        list.append(QJsonObject{{"id", e.profile.id}, {"name", e.profile.name}, {"email", e.profile.email},
+                                {"org", e.profile.org}, {"business", e.profile.business}, {"mirror", e.mirror}});
     QDir().mkpath(QFileInfo(accountsPath()).absolutePath());
     QFile file(accountsPath());
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
@@ -272,15 +264,11 @@ void Account::changed() {
     Graph::setActive(m_activeId);
     QHash<QString, QString> roots;
     QSet<QString> work;
-    QHash<QString, QPair<QString, QString>> appsById;
     for (const Entry &each : std::as_const(m_entries)) {
         roots.insert(each.profile.id, each.mirror);
         if (each.profile.business)
             work.insert(each.profile.id);
-        if (!each.clientId.isEmpty())
-            appsById.insert(each.profile.id, {each.clientId, each.tenant});
     }
-    Graph::setApps(appsById);
     Mirror::setRoots(roots, m_activeId, work);
     emit accountsChanged();
     const QString key = m_activeId + "|" + state();
@@ -402,8 +390,6 @@ void Account::welcome(const Outcome &outcome) {
     }
     e->profile = outcome.profile;
     e->status = "ready";
-    e->clientId = outcome.clientId;
-    e->tenant = outcome.tenant;
     writeAvatar(*e, outcome.photo);
     m_activeId = e->profile.id;
     save();
@@ -413,21 +399,17 @@ void Account::welcome(const Outcome &outcome) {
 
 void Account::signIn() {
     const Entry *e = activeEntry();
-    interactive(e ? e->profile.email : QString(), e ? e->clientId : QString(), e ? e->tenant : QString());
+    interactive(e ? e->profile.email : QString());
 }
 
 void Account::addAccount() {
     interactive({});
 }
 
-void Account::addAccountWithApp(const QString &clientId, const QString &tenant) {
-    interactive({}, clientId.trimmed(), tenant.trimmed());
-}
-
-void Account::interactive(const QString &hint, const QString &clientId, const QString &tenant) {
+void Account::interactive(const QString &hint) {
     if (m_signingIn)
         return;
-    if (!Graph::configured() && clientId.isEmpty()) {
+    if (!Graph::configured()) {
         emit notice(tr("Set clientId in %1 first").arg(Graph::configPath()), true);
         return;
     }
@@ -443,8 +425,6 @@ void Account::interactive(const QString &hint, const QString &clientId, const QS
 
     m_verifier = randomToken(48);
     m_expectedState = randomToken(16);
-    m_signInClientId = clientId;
-    m_signInTenant = tenant;
     m_redirect = QString("http://localhost:%1").arg(m_server->serverPort());
     const QString challenge = QString::fromLatin1(
         QCryptographicHash::hash(m_verifier.toLatin1(), QCryptographicHash::Sha256)
@@ -453,7 +433,7 @@ void Account::interactive(const QString &hint, const QString &clientId, const QS
     setBusy(true);
     m_timeout.start();
     changed();
-    QDesktopServices::openUrl(QUrl(Graph::authorizeUrl(m_redirect, challenge, m_expectedState, hint, clientId, tenant)));
+    QDesktopServices::openUrl(QUrl(Graph::authorizeUrl(m_redirect, challenge, m_expectedState, hint)));
 }
 
 void Account::handleConnection() {
@@ -498,13 +478,9 @@ void Account::handleConnection() {
 
 void Account::finish(const QString &code) {
     const QString verifier = m_verifier, redirect = m_redirect;
-    const QString clientId = m_signInClientId, tenant = m_signInTenant;
-    run([code, verifier, redirect, clientId, tenant] {
+    run([code, verifier, redirect] {
         Outcome outcome;
-        outcome.clientId = clientId;
-        outcome.tenant = tenant;
         Graph pending;
-        pending.setApp(clientId, tenant);
         if (!pending.exchangeCode(code, verifier, redirect, &outcome.error))
             return outcome;
         outcome.profile = pending.profile(&outcome.error);

@@ -40,22 +40,12 @@ public:
     static bool configured();
     static QString configPath();
     static QString authorizeUrl(const QString &redirect, const QString &challenge, const QString &state,
-                                const QString &loginHint = {}, const QString &clientId = {}, const QString &tenant = {});
-
-    // Which app (client id, tenant) each account signs in and refreshes with.
-    // An account with no entry, and a sign-in in progress, use auth.json's
-    // default. This lets a work account borrow a different app id, so it can
-    // sign in where the tenant blocks the default one, without disturbing the
-    // personal account.
-    static void setApps(const QHash<QString, QPair<QString, QString>> &apps);
-    static QPair<QString, QString> appFor(const QString &id);  // (clientId, tenant), default-filled
+                                const QString &loginHint = {});
 
     // A Graph made without an id is a sign-in in progress: it keeps its token
     // to itself until adopt() hands it to the account it turned out to be.
     explicit Graph(const QString &id = {});
     QString id() const { return m_id; }
-    // The app a sign-in in progress uses, before its account id is known.
-    void setApp(const QString &clientId, const QString &tenant);
 
     bool exchangeCode(const QString &code, const QString &verifier, const QString &redirect, QString *error);
     bool restore(QString *error);  // false without an error means no saved sign-in
@@ -111,7 +101,6 @@ private:
     void saveToken();
 
     QString m_id;
-    QString m_clientId, m_tenant;  // set only for a sign-in in progress
     QString m_access, m_refresh;
     QDateTime m_expires;
     mutable QMutex m_mutex;

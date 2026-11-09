@@ -65,7 +65,6 @@ QJsonObject resolveAccounts(const QString &wanted, QString *error) {
     const QString active = json.value("active").toString();
     QHash<QString, QString> roots;
     QSet<QString> work;
-    QHash<QString, QPair<QString, QString>> appsById;
     QJsonObject chosen;
     for (const QJsonValue &v : accounts) {
         const QJsonObject a = v.toObject();
@@ -73,15 +72,11 @@ QJsonObject resolveAccounts(const QString &wanted, QString *error) {
         roots.insert(id, a.value("mirror").toString());
         if (a.value("business").toBool())
             work.insert(id);
-        const QString clientId = a.value("clientId").toString();
-        if (!clientId.isEmpty())
-            appsById.insert(id, {clientId, a.value("tenant").toString()});
         const bool match = wanted.isEmpty() ? id == active
                                             : id == wanted || a.value("email").toString().compare(wanted, Qt::CaseInsensitive) == 0;
         if (match && chosen.isEmpty())
             chosen = a;
     }
-    Graph::setApps(appsById);
     Mirror::setRoots(roots, chosen.value("id").toString(active), work);
     if (chosen.isEmpty())
         *error = wanted.isEmpty() ? "No active OneDrive account" : QString("No account matches '%1'").arg(wanted);
