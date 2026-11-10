@@ -169,46 +169,90 @@ int cmdStat(const QString &path, const QString &wanted) {
     return okWith(itemJson(e, p));
 }
 
-// OneDrive's own search, with the token rclone keeps for the account; a
-// recursive listing of a large drive takes a minute.
-QJsonArray graphSearch(const Account &a, const QString &query, QString *error) {
-    auto token = [&a]() {
+// Microsoft Graph with the token rclone keeps for the account (refreshed
+// through rclone when close to expiry), for what rclone cannot do itself.
+struct GraphSession {
+    QString bearer, driveId;
+};
+
+GraphSession graphSession(const Account &a, QString *error) {
+    auto read = [&a]() {
         const Cloud::Run dump = Cloud::rclone({"config", "dump"}, 15000);
         const QJsonObject cfg = QJsonDocument::fromJson(dump.out).object().value(a.remote).toObject();
         return std::make_pair(QJsonDocument::fromJson(cfg.value("token").toString().toUtf8()).object(),
                               cfg.value("drive_id").toString());
     };
-    auto [tok, driveId] = token();
+    auto [tok, driveId] = read();
     const QDateTime expiry = QDateTime::fromString(tok.value("expiry").toString(), Qt::ISODateWithMs);
     if (!expiry.isValid() || expiry < QDateTime::currentDateTime().addSecs(120)) {
         Cloud::rclone({"about", a.fs()}, 30000);  // makes rclone refresh and save the token
-        std::tie(tok, driveId) = token();
+        std::tie(tok, driveId) = read();
     }
-    const QString bearer = tok.value("access_token").toString();
-    if (bearer.isEmpty() || driveId.isEmpty()) {
+    GraphSession s{tok.value("access_token").toString(), driveId};
+    if (s.bearer.isEmpty() || s.driveId.isEmpty())
         *error = "no token";
-        return {};
-    }
-    QString q = query;
-    q.replace('\'', "''");
-    QUrl url(QString("https://graph.microsoft.com/v1.0/drives/%1/root/search(q='%2')").arg(driveId, q));
-    url.setQuery("$top=200&$select=name,size,folder,file,lastModifiedDateTime,parentReference");
+    return s;
+}
 
+struct GraphResult {
+    int status = 0;  // 0: no answer
+    QJsonObject json;
+    QString error;
+};
+
+// One call on the account's own drive: rel is relative to /drives/<id>/.
+GraphResult graphCall(const GraphSession &s, const QByteArray &verb, const QString &rel, const QString &query = {},
+                      const QJsonObject &body = {}, const QByteArray &ifMatch = {}) {
+    QUrl url("https://graph.microsoft.com/v1.0/drives/" + s.driveId + "/" + rel);
+    if (!query.isEmpty())
+        url.setQuery(query);
     QNetworkAccessManager net;
     QNetworkRequest req(url);
-    req.setRawHeader("Authorization", "Bearer " + bearer.toUtf8());
-    QNetworkReply *reply = net.get(req);
+    req.setRawHeader("Authorization", "Bearer " + s.bearer.toUtf8());
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (!ifMatch.isEmpty())
+        req.setRawHeader("If-Match", ifMatch);
+    QNetworkReply *reply =
+        net.sendCustomRequest(req, verb, body.isEmpty() ? QByteArray() : QJsonDocument(body).toJson());
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QTimer::singleShot(30000, &loop, &QEventLoop::quit);
     loop.exec();
     reply->deleteLater();
-    if (!reply->isFinished() || reply->error() != QNetworkReply::NoError) {
-        *error = reply->isFinished() ? reply->errorString() : QStringLiteral("timed out");
+    GraphResult r;
+    if (!reply->isFinished()) {
+        reply->abort();
+        r.error = "timed out";
+        return r;
+    }
+    r.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    r.json = QJsonDocument::fromJson(reply->readAll()).object();
+    if (r.status < 200 || r.status >= 300)
+        r.error = r.json.value("error").toObject().value("message").toString(reply->errorString());
+    return r;
+}
+
+// "/a/b c" -> "root:/a/b%20c:" for a path-addressed item.
+QString rootPath(const QString &drivePath) {
+    return drivePath == "/" ? QStringLiteral("root")
+                            : "root:" + QString::fromUtf8(QUrl::toPercentEncoding(drivePath, "/")) + ":";
+}
+
+// OneDrive's own search; a recursive listing of a large drive takes a minute.
+QJsonArray graphSearch(const Account &a, const QString &query, QString *error) {
+    const GraphSession s = graphSession(a, error);
+    if (!error->isEmpty())
+        return {};
+    QString q = query;
+    q.replace('\'', "''");
+    const GraphResult r = graphCall(s, "GET", QString("root/search(q='%1')").arg(q),
+                                    "$top=200&$select=name,size,folder,file,lastModifiedDateTime,parentReference");
+    if (!r.error.isEmpty()) {
+        *error = r.error;
         return {};
     }
     QJsonArray items;
-    for (const QJsonValue &v : QJsonDocument::fromJson(reply->readAll()).object().value("value").toArray()) {
+    for (const QJsonValue &v : r.json.value("value").toArray()) {
         const QJsonObject hit = v.toObject();
         const QString parent = hit.value("parentReference").toObject().value("path").toString();
         const int colon = parent.indexOf("root:");
@@ -489,8 +533,11 @@ int claimRefused(const QString &reason, const QString &path, const QString &deta
 }
 
 // Moves an item on OneDrive into <parent>/.claimed/<host>/ (or where --as
-// says). OneDrive moves by id, so of several machines claiming the same file
-// one move wins and the others find the source gone ("taken").
+// says). The move is guarded by the eTag read just before it: a move changes
+// the eTag, so of several machines claiming the same file exactly one wins
+// and the others get 412 or find the source gone ("taken"). A plain rclone
+// move would not do: it moves by id, so a late machine would take the file
+// back out of the winner's folder.
 int cmdClaim(const QString &path, const QString &as, const QString &wanted) {
     if (path.isEmpty())
         return fail("Usage: omadrive agent claim <path> [--as <name|path>] [--account <name>]");
@@ -516,21 +563,32 @@ int cmdClaim(const QString &path, const QString &as, const QString &wanted) {
 
     if (a.mounted && Cloud::pending(a).contains(p))
         return claimRefused("pending", p);
-    const QJsonObject e = statItem(a, p, &error);
-    if (e.isEmpty())
-        return error.isEmpty() ? claimRefused("taken", p) : claimRefused("failed", p, error);
-    if (!statItem(a, dest, &error).isEmpty())
+    const GraphSession s = graphSession(a, &error);
+    if (!error.isEmpty())
+        return claimRefused("failed", p, error);
+    const GraphResult item = graphCall(s, "GET", rootPath(p), "$select=id,eTag");
+    if (item.status == 404)
+        return claimRefused("taken", p);
+    if (!item.error.isEmpty())
+        return claimRefused("failed", p, item.error);
+    if (graphCall(s, "GET", rootPath(dest), "$select=id").status != 404)
         return claimRefused("invalid", p, QString("%1 already exists").arg(dest));
+    const Cloud::Run mk = Cloud::rclone({"mkdir", Cloud::remotePath(a, parentOf(dest))}, 60000);
+    const GraphResult folder = graphCall(s, "GET", rootPath(parentOf(dest)), "$select=id");
+    if (mk.code != 0 || !folder.error.isEmpty())
+        return claimRefused("failed", p, mk.code != 0 ? mk.error() : folder.error);
 
-    const bool dir = e.value("IsDir").toBool();
-    const Cloud::Run run = Cloud::rclone({dir ? "move" : "moveto", Cloud::remotePath(a, p), Cloud::remotePath(a, dest)},
-                                         600000);
-    if (run.code != 0) {
-        QString again;
-        if (statItem(a, p, &again).isEmpty() && again.isEmpty())
-            return claimRefused("taken", p);
-        return claimRefused("failed", p, run.error());
-    }
+    const GraphResult moved = graphCall(
+        s, "PATCH", "items/" + item.json.value("id").toString(), "@microsoft.graph.conflictBehavior=fail",
+        {{"parentReference", QJsonObject{{"id", folder.json.value("id").toString()}}},
+         {"name", dest.mid(dest.lastIndexOf('/') + 1)}},
+        item.json.value("eTag").toString().toUtf8());
+    if (moved.status == 404 || moved.status == 412)
+        return claimRefused("taken", p);
+    if (moved.status == 409)
+        return claimRefused("invalid", p, QString("%1 already exists").arg(dest));
+    if (!moved.error.isEmpty())
+        return claimRefused("failed", p, moved.error);
     refreshMount(a, p);
     refreshMount(a, dest);
     return okWith({{"account", a.remote},
