@@ -2,13 +2,13 @@
 
 ![omadrive](assets/banner.png)
 
-Tabbed file manager for Omarchy (C++ / Qt Quick) for local folders and OneDrive (through Microsoft Graph), modelled on One Commander. One window, one pane; `Tab` flips between this device and OneDrive, and `Ctrl+\` opens a second pane beside it for copying. Above the files, folder columns (One Commander's Miller columns) show every folder on the way to the current one; the folders above the current one are thin strips with their names turned 90° (click one to go there), and the current folder is a full column of its folders and files that follows the highlight. Hide them with `` ` `` or `Ctrl+B`. Tabs, the split and the highlighted files are remembered in `~/.config/omadrive/tabs.conf`.
+Tabbed file manager for Omarchy (C++ / Qt Quick), modelled on One Commander, with OneDrive status and actions inside rclone-mounted folders. One window, one pane; `Ctrl+\` opens a second pane beside it for copying, and `omadrive <folder>` opens a folder. Above the files, folder columns (One Commander's Miller columns) show every folder on the way to the current one; the folders above the current one are thin strips with their names turned 90° (click one to go there), and the current folder is a full column of its folders and files that follows the highlight. Hide them with `` ` `` or `Ctrl+B`. Tabs, the split and the highlighted files are remembered in `~/.config/omadrive/tabs.conf`.
 
 Keys follow Windows and One Commander:
 
 | Keys | Action |
 | --- | --- |
-| `Tab` | Local ⇄ OneDrive (with two panes: switch pane, also `Alt+F`) |
+| `Tab` / `Alt+F` | Switch pane |
 | `Ctrl+\` | One or two panes |
 | `Ctrl+T` / `Ctrl+W` / `Ctrl+Tab` / `Ctrl+1…9` | New tab here / close / next / go to tab |
 | `Ctrl+N` | New file or folder: folder, text, Markdown, shell script, empty file |
@@ -20,11 +20,10 @@ Keys follow Windows and One Commander:
 | `Ctrl+Space` / `Ins`, `Ctrl+A`, `Esc` | Mark, select all, clear marks |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy, cut, paste (across tabs too) |
 | `Ctrl+Shift+C` | Copy path |
-| `Alt+C` / `Alt+M` | Copy / move to the other pane (from OneDrive: into the mirror) |
+| `Alt+C` / `Alt+M` | Copy / move to the other pane |
 | `F2`, `Delete` | Rename, trash |
 | `Ctrl+R` / `F5`, `Ctrl+H` | Refresh, hidden files |
-| `Ctrl+Shift+A` | Switch OneDrive account |
-| `Ctrl+Shift+L`, `?`, `Ctrl+Q` | Sign out of this account, help, quit |
+| `?`, `Ctrl+Q` | Help, quit |
 
 Mouse: click selects, `Ctrl`+click toggles a mark, `Shift`+click marks a range, double-click opens, right-click opens the menu, middle-click opens a folder in a new tab (or closes a tab), and clicking beside the path lets you type one. Drag items between panes, onto a folder or a tab, or to and from other apps; hold `Shift` while dropping to move.
 
