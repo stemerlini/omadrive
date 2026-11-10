@@ -7,6 +7,7 @@ TEMPLATE = app
 
 HEADERS += src/agent.h \
     src/recent.h \
+    src/rclone.h \
     src/account.h \
     src/backend.h \
     src/folderlist.h \
@@ -22,6 +23,7 @@ HEADERS += src/agent.h \
 
 SOURCES += src/agent.cpp \
     src/recent.cpp \
+    src/rclone.cpp \
     src/main.cpp \
     src/account.cpp \
     src/backend.cpp \

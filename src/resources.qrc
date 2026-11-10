@@ -30,6 +30,7 @@
         <file alias="icons/online.svg">icons/online.svg</file>
         <file alias="icons/local.svg">icons/local.svg</file>
         <file alias="icons/changed.svg">icons/changed.svg</file>
+        <file alias="icons/pending.svg">icons/pending.svg</file>
         <file alias="icons/tab-cloud.svg">icons/tab-cloud.svg</file>
         <file alias="icons/tab-device.svg">icons/tab-device.svg</file>
         <file alias="icons/tree.svg">icons/tree.svg</file>

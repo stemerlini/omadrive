@@ -11,6 +11,7 @@
 #include "folderlist.h"
 #include "mirror.h"
 #include "preview.h"
+#include "rclone.h"
 #include "sync.h"
 #include "theme.h"
 #include "transfer.h"
@@ -318,6 +319,33 @@ private slots:
 
         list.setShowHidden(true);
         QCOMPARE(list.rowCount(), 3);
+    }
+
+    void rcloneStateFollowsTheVfsCache()
+    {
+        QTemporaryDir cache;
+        const QByteArray mounts =
+            "/dev/sda1 / ext4 rw 0 0\n"
+            "onedrive-personal: /home/u/One\\040Drive fuse.rclone rw 0 0\n"
+            "work:Shared/Docs /home/u/Docs fuse.rclone rw 0 0\n";
+        const auto parsed = Rclone::parseMounts(mounts, cache.path());
+        QCOMPARE(parsed.size(), 2);
+        QVERIFY(!Rclone::mountFor("/home/u/Other", parsed).isValid());
+        QCOMPARE(Rclone::mountFor("/home/u/Docs/a", parsed).metaRoot, cache.path() + "/vfsMeta/work/Shared/Docs");
+
+        const Rclone::Mount m = Rclone::mountFor("/home/u/One Drive/x", parsed);
+        QCOMPARE(m.mountpoint, QString("/home/u/One Drive"));
+        const QString meta = cache.path() + "/vfsMeta/onedrive-personal/";
+        QVERIFY(QDir().mkpath(meta + "d"));
+        write(meta + "d/full", R"({"Size":10,"Rs":[{"Pos":4,"Size":6},{"Pos":0,"Size":5}],"Dirty":false})");
+        write(meta + "d/part", R"({"Size":10,"Rs":[{"Pos":0,"Size":4},{"Pos":5,"Size":5}],"Dirty":false})");
+        write(meta + "d/dirty", R"({"Size":10,"Rs":[],"Dirty":true})");
+
+        QCOMPARE(Rclone::state(m, "/home/u/One Drive/d/full", false), QString("local"));
+        QCOMPARE(Rclone::state(m, "/home/u/One Drive/d/part", false), QString("online"));
+        QCOMPARE(Rclone::state(m, "/home/u/One Drive/d/dirty", false), QString("pending"));
+        QCOMPARE(Rclone::state(m, "/home/u/One Drive/d/never", false), QString("online"));
+        QCOMPARE(Rclone::state(m, "/home/u/One Drive/d", true), QString());
     }
 
     void unreadableFolderKeepsThePreviousPath()

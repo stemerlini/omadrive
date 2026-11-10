@@ -258,7 +258,14 @@ Rectangle {
         }
         AppMenuItem { text: qsTr("Preview"); iconName: "menu-preview"; hint: "Space"; visible: !menu.isDir; onTriggered: pane.menuAction("preview") }
 
-        MenuSeparator { visible: pane.remote; height: visible ? implicitHeight : 0 }
+        MenuSeparator { visible: pane.remote || pane.folder.cloudMount === true; height: visible ? implicitHeight : 0 }
+        AppMenuItem {
+            text: qsTr("Download to this device")
+            iconName: "menu-download"
+            visible: !pane.remote && pane.folder.cloudMount === true
+            enabled: menu.many || menu.isDir || pane.currentItemCloud === "online"
+            onTriggered: pane.menuAction("cacheDownload")
+        }
         AppMenuItem {
             text: qsTr("Always keep on this device")
             iconName: "menu-download"
@@ -477,8 +484,8 @@ Rectangle {
                 required property string sizeText
                 required property string modified
                 required property var model
-                // Only the OneDrive listing has this role.
-                readonly property string cloud: pane.remote && model.cloud ? model.cloud : ""
+                // OneDrive listings and files in an rclone mount have this role.
+                readonly property string cloud: model.cloud ? model.cloud : ""
 
                 // Dragging a marked row takes every marked item with it.
                 readonly property var dragPaths: pane.marked[path] ? Object.keys(pane.marked) : [path]
@@ -519,6 +526,7 @@ Rectangle {
                         ToolTip.delay: 400
                         ToolTip.text: row.cloud === "local" ? qsTr("Available on this device")
                                     : row.cloud === "changed" ? qsTr("The copy on this device differs from OneDrive")
+                                    : row.cloud === "pending" ? qsTr("Waiting to upload")
                                     : qsTr("Online only")
                     }
                     Label {

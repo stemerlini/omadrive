@@ -42,6 +42,28 @@ Right-click a OneDrive item for its cloud actions: **Always keep on this device*
 
 Originals are never overwritten: name clashes get a ` (2)` suffix.
 
+## rclone mounts
+
+Folders mounted with `rclone mount --vfs-cache-mode full` (for example a OneDrive remote at `~/OneDrive-Personal`) are browsed like any local folder, and each file shows its state, read from rclone's cache (`~/.cache/rclone/vfsMeta/`): online only (cloud), on this device (check) or waiting to upload (cloud with an arrow). Right-click **Download to this device** fetches the files (whole folders too) into rclone's cache. rclone itself frees space, dropping the least recently used files once the cache passes `--vfs-cache-max-size`.
+
+A systemd user unit, one instance per remote, with `~/.config/rclone/mounts/<name>.env` holding `REMOTE=onedrive-personal:` and `MOUNTPOINT=/home/<you>/OneDrive-Personal`:
+
+```ini
+# ~/.config/systemd/user/rclone-mount@.service
+[Service]
+Type=notify
+EnvironmentFile=%h/.config/rclone/mounts/%i.env
+ExecStartPre=/usr/bin/mkdir -p ${MOUNTPOINT}
+ExecStart=/usr/bin/rclone mount ${REMOTE} ${MOUNTPOINT} --vfs-cache-mode full --vfs-cache-max-age 8760h --vfs-cache-max-size 50G
+ExecStop=/usr/bin/fusermount3 -uz ${MOUNTPOINT}
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+`systemctl --user enable --now rclone-mount@personal`
+
 ## Sync folder (mount)
 
 `omadrive mount` turns an account's folder (`~/OneDrive-Personal`, `~/OneDrive-SES`, …) into a two-way OneDrive sync folder, like `rclone mount` with a cache. It is a FUSE file system (it needs `fuse3`) showing the whole OneDrive tree: listing never downloads, a file downloads the first time it is opened, and local changes upload a few seconds after the last write. Each item has a state, in the `user.omadrive.state` extended attribute (`getfattr -n user.omadrive.state <file>`):

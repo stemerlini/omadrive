@@ -1,8 +1,11 @@
 #include "folderlist.h"
 
 #include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QLocale>
+#include <QtConcurrent>
 
 #include <algorithm>
 
@@ -11,6 +14,9 @@ FolderList::FolderList(QObject *parent) : QAbstractListModel(parent) {
     m_debounce.setInterval(120);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
     connect(&m_debounce, &QTimer::timeout, this, &FolderList::refresh);
+    // rclone changes its cache without touching the folder, so look again.
+    m_cloudPoll.setInterval(2000);
+    connect(&m_cloudPoll, &QTimer::timeout, this, &FolderList::updateCloud);
 }
 
 int FolderList::rowCount(const QModelIndex &parent) const {
@@ -27,13 +33,14 @@ QVariant FolderList::data(const QModelIndex &index, int role) const {
     case IsDirRole: return e.isDir;
     case SizeTextRole: return e.isDir ? QString() : QLocale().formattedDataSize(e.size, 1);
     case ModifiedRole: return QLocale().toString(e.modified, QLocale::ShortFormat);
+    case CloudRole: return e.cloud;
     }
     return {};
 }
 
 QHash<int, QByteArray> FolderList::roleNames() const {
     return {{NameRole, "name"}, {PathRole, "path"}, {IsDirRole, "isDir"},
-            {SizeTextRole, "sizeText"}, {ModifiedRole, "modified"}};
+            {SizeTextRole, "sizeText"}, {ModifiedRole, "modified"}, {CloudRole, "cloud"}};
 }
 
 void FolderList::setPath(const QString &path) {
@@ -55,6 +62,11 @@ void FolderList::setPath(const QString &path) {
         m_watcher.removePath(m_path);
     m_path = clean;
     m_watcher.addPath(m_path);
+    m_mount = Rclone::mountFor(m_path);
+    if (m_mount.isValid())
+        m_cloudPoll.start();
+    else
+        m_cloudPoll.stop();
     setError({});
     emit pathChanged();
     refresh();
@@ -85,7 +97,8 @@ void FolderList::refresh() {
     const auto infos = QDir(m_path).entryInfoList(filters);
     entries.reserve(infos.size());
     for (const QFileInfo &info : infos)
-        entries.append({info.fileName(), info.absoluteFilePath(), info.isDir(), info.size(), info.lastModified()});
+        entries.append({info.fileName(), info.absoluteFilePath(), info.isDir(), info.size(), info.lastModified(),
+                        Rclone::state(m_mount, info.absoluteFilePath(), info.isDir())});
 
     // Folders first, then names without regard to case.
     std::sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
@@ -112,6 +125,43 @@ int FolderList::indexOfPath(const QString &path) const {
         if (m_entries.at(i).path == path)
             return i;
     return -1;
+}
+
+void FolderList::updateCloud() {
+    for (int i = 0; i < m_entries.size(); ++i) {
+        Entry &e = m_entries[i];
+        const QString cloud = Rclone::state(m_mount, e.path, e.isDir);
+        if (cloud != e.cloud) {
+            e.cloud = cloud;
+            emit dataChanged(index(i), index(i), {CloudRole});
+        }
+    }
+}
+
+bool FolderList::download(const QStringList &paths) {
+    if (!m_mount.isValid())
+        return false;
+    const QString root = m_mount.mountpoint;
+    (void)QtConcurrent::run([paths, root] {
+        const auto fetch = [](const QString &file) {
+            QFile f(file);
+            if (!f.open(QIODevice::ReadOnly))
+                return;
+            while (!f.read(1 << 20).isEmpty()) {}
+        };
+        for (const QString &path : paths) {
+            if (!path.startsWith(root + '/'))
+                continue;
+            if (!QFileInfo(path).isDir()) {
+                fetch(path);
+                continue;
+            }
+            QDirIterator it(path, QDir::Files | QDir::Hidden | QDir::NoSymLinks, QDirIterator::Subdirectories);
+            while (it.hasNext())
+                fetch(it.next());
+        }
+    });
+    return true;
 }
 
 void FolderList::setError(const QString &error) {

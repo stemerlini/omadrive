@@ -425,6 +425,10 @@ ApplicationWindow {
         else if (action === "trash") askTrash()
         else if (action === "preview") togglePreview()
         else if (action === "mirror") transfer.downloadToMirror(accountOf(activePane), activePane.targets(), false)
+        else if (action === "cacheDownload") {
+            if (activePane.folder.download(activePane.targets()))
+                win.say(qsTr("Downloading to this device…"), false)
+        }
         else if (action === "clipCopy") clipboardPut(false)
         else if (action === "clipCut") clipboardPut(true)
         else if (action === "paste") paste()
