@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the OneDrive bar panel into the Omarchy shell and puts it on the bar.
+# Installs the Cloud (OneDrive accounts) bar panel into the Omarchy shell and puts it on the bar.
 set -e
 src="$(cd "$(dirname "$0")" && pwd)/smerlini.onedrive"
 dest="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/smerlini.onedrive"

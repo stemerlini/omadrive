@@ -9,12 +9,10 @@ import QtQuick.Layouts
 Rectangle {
     id: pane
 
-    // A tab: { remote, folder, selected }. `selected` is the highlighted path,
+    // A tab: { folder, selected }. `selected` is the highlighted path,
     // restored when the tab is shown again.
     required property var tab
     readonly property var folder: tab.folder
-    // OneDrive tabs: paths are OneDrive paths and need a sign-in.
-    readonly property bool remote: tab.remote
     property bool active: false
     // Whether a second pane is open for Alt+C/Alt+M.
     property bool paired: false
@@ -28,7 +26,6 @@ Rectangle {
     property int lastIndex: 0
     property int anchorIndex: 0
     property bool resetting: false
-    readonly property bool needsSignIn: remote && !account.signedIn
     readonly property string currentItemPath: list.currentItem ? list.currentItem.path : ""
     readonly property string currentItemCloud: list.currentItem ? list.currentItem.cloud : ""
     readonly property var segments: folder.path.split("/").filter(function (s) { return s !== "" })
@@ -36,8 +33,7 @@ Rectangle {
     signal focusRequested()
     signal notice(string text)
     signal menuAction(string action)
-    signal openRemote(string path, string cloud)
-    signal itemsDropped(var paths, bool fromRemote, string fromAccount, string destPath, bool move)
+    signal itemsDropped(var paths, string destPath, bool move)
     signal openInNewTab(string path)
     signal treeToggled()
 
@@ -131,10 +127,6 @@ Rectangle {
     }
 
     function openCurrent() {
-        if (needsSignIn) {
-            account.signIn()
-            return
-        }
         var path = currentPath()
         if (!path)
             return
@@ -142,8 +134,6 @@ Rectangle {
             lastPath = ""
             lastIndex = 0
             folder.path = path
-        } else if (remote) {
-            openRemote(path, currentItemCloud)
         } else {
             backend.openExternally(path)
         }
@@ -168,7 +158,7 @@ Rectangle {
 
     function editPath() {
         editingPath = true
-        pathField.text = remote ? folder.path : folder.path
+        pathField.text = folder.path
         pathField.forceActiveFocus()
         pathField.selectAll()
     }
@@ -177,9 +167,9 @@ Rectangle {
         var text = pathField.text.trim()
         editingPath = false
         if (accept && text !== "") {
-            if (!remote && text.indexOf("~") === 0)
+            if (text.indexOf("~") === 0)
                 text = backend.homePath() + text.substring(1)
-            if (!remote && !backend.isDir(text))
+            if (!backend.isDir(text))
                 notice(qsTr("No such folder: %1").arg(text))
             else
                 openFolder(text)
@@ -189,13 +179,8 @@ Rectangle {
 
     function handleDrop(drop, destPath) {
         var paths = []
-        var fromRemote = false
-        var fromAccount = ""
         if (drop.formats.indexOf("application/x-omadrive-items") >= 0) {
-            var data = JSON.parse(drop.getDataAsString("application/x-omadrive-items"))
-            paths = data.paths
-            fromRemote = data.remote
-            fromAccount = data.account || ""
+            paths = JSON.parse(drop.getDataAsString("application/x-omadrive-items")).paths
         } else if (drop.hasUrls) {
             for (var i = 0; i < drop.urls.length; i++) {
                 var url = drop.urls[i].toString()
@@ -207,19 +192,12 @@ Rectangle {
             return
         var move = drop.proposedAction === Qt.MoveAction
         drop.accept(move ? Qt.MoveAction : Qt.CopyAction)
-        itemsDropped(paths, fromRemote, fromAccount, destPath, move)
+        itemsDropped(paths, destPath, move)
     }
 
     Connections {
         target: pane.folder
-        ignoreUnknownSignals: true  // only OneDrive lists have accounts
         function onPathChanged() { pane.clearMarks() }
-        // The marks and highlight name the other account's files.
-        function onAccountChanged() {
-            pane.clearMarks()
-            pane.lastPath = ""
-            pane.tab.selected = ""
-        }
         function onModelAboutToBeReset() { pane.resetting = true }
         function onModelReset() {
             // Wait for the ListView to settle before restoring the highlight.
@@ -235,18 +213,10 @@ Rectangle {
 
     AppMenu {
         id: menu
-        // Several marked items: the download / free up entries cover them all.
+        // Several marked items: the download entry covers them all.
         readonly property bool many: pane.markedCount > 1
         readonly property bool isDir: pane.folder.isDirAt(list.currentIndex)
-        // A submenu can't hide itself, so its entry is hidden here.
-        onAboutToShow: {
-            for (var i = 0; i < count; ++i) {
-                var it = itemAt(i)
-                if (it && it.subMenu === shareMenu)
-                    it.visible = pane.remote
-            }
-        }
-        readonly property string org: account.accounts.filter(function (a) { return a.active }).map(function (a) { return a.org })[0] || qsTr("your organization")
+        readonly property bool cloud: pane.folder.cloudMount === true
 
         AppMenuItem { text: qsTr("Open"); iconName: "menu-open"; hint: "Enter"; onTriggered: pane.menuAction("open") }
         AppMenuItem {
@@ -258,54 +228,26 @@ Rectangle {
         }
         AppMenuItem { text: qsTr("Preview"); iconName: "menu-preview"; hint: "Space"; visible: !menu.isDir; onTriggered: pane.menuAction("preview") }
 
-        MenuSeparator { visible: pane.remote || pane.folder.cloudMount === true; height: visible ? implicitHeight : 0 }
+        MenuSeparator { visible: menu.cloud; height: visible ? implicitHeight : 0 }
         AppMenuItem {
             text: qsTr("Download to this device")
             iconName: "menu-download"
-            visible: !pane.remote && pane.folder.cloudMount === true
+            visible: menu.cloud
             enabled: menu.many || menu.isDir || pane.currentItemCloud === "online"
             onTriggered: pane.menuAction("cacheDownload")
         }
         AppMenuItem {
-            text: qsTr("Always keep on this device")
-            iconName: "menu-download"
-            visible: pane.remote
-            enabled: menu.many || menu.isDir || pane.currentItemCloud === "online"
-            onTriggered: pane.menuAction("mirror")
+            text: qsTr("Copy view link")
+            iconName: "menu-link"
+            visible: menu.cloud && pane.targets().length === 1
+            onTriggered: pane.menuAction("share:view")
         }
         AppMenuItem {
-            text: qsTr("Free up space")
-            iconName: "menu-freeup"
-            visible: pane.remote
-            enabled: menu.many || menu.isDir || pane.currentItemCloud !== "online"
-            onTriggered: pane.menuAction("freeUp")
+            text: qsTr("Copy edit link")
+            iconName: "menu-link"
+            visible: menu.cloud && pane.targets().length === 1
+            onTriggered: pane.menuAction("share:edit")
         }
-        AppMenu {
-            id: shareMenu
-            title: qsTr("Share")
-            iconName: "menu-share"
-            AppMenuItem {
-                text: account.business ? qsTr("Link for %1 · can view").arg(menu.org)
-                                       : qsTr("Copy link · can view")
-                iconName: "menu-link"
-                onTriggered: pane.menuAction(account.business ? "share:org-view" : "share:view")
-            }
-            AppMenuItem {
-                text: account.business ? qsTr("Link for %1 · can edit").arg(menu.org)
-                                       : qsTr("Copy link · can edit")
-                iconName: "menu-link"
-                onTriggered: pane.menuAction(account.business ? "share:org-edit" : "share:edit")
-            }
-            AppMenuItem {
-                text: qsTr("Link for anyone · can view")
-                iconName: "menu-web"
-                visible: account.business
-                onTriggered: pane.menuAction("share:anyone")
-            }
-            MenuSeparator {}
-            AppMenuItem { text: qsTr("Share with people…"); iconName: "menu-people"; onTriggered: pane.menuAction("shareInvite") }
-        }
-        AppMenuItem { text: qsTr("Open on the web"); iconName: "menu-web"; visible: pane.remote; onTriggered: pane.menuAction("web") }
 
         MenuSeparator {}
         AppMenuItem { text: qsTr("Copy"); iconName: "menu-copy"; hint: "Ctrl+C"; onTriggered: pane.menuAction("clipCopy") }
@@ -383,7 +325,7 @@ Rectangle {
                             }
                             Label {
                                 padding: 4
-                                text: crumb.index === 0 ? (pane.remote ? account.driveName : "/") : pane.segments[crumb.index - 1]
+                                text: crumb.index === 0 ? "/" : pane.segments[crumb.index - 1]
                                 color: crumb.index === pane.segments.length ? "#e6e6e6" : theme.accent
                                 font.underline: crumbHover.hovered
                                 HoverHandler { id: crumbHover; cursorShape: Qt.PointingHandCursor }
@@ -429,11 +371,10 @@ Rectangle {
             }
 
         FolderTree {
-            visible: pane.showTree && !pane.needsSignIn
+            visible: pane.showTree
             SplitView.preferredHeight: 170
             SplitView.minimumHeight: 80
             folder: pane.folder
-            remote: pane.remote
             onOpened: path => { pane.focusRequested(); pane.openFolder(path) }
             onOpenedInNewTab: path => pane.openInNewTab(path)
             currentPath: pane.currentItemPath
@@ -484,7 +425,7 @@ Rectangle {
                 required property string sizeText
                 required property string modified
                 required property var model
-                // OneDrive listings and files in an rclone mount have this role.
+                // Files in an rclone mount: "online", "local" or "pending".
                 readonly property string cloud: model.cloud ? model.cloud : ""
 
                 // Dragging a marked row takes every marked item with it.
@@ -504,10 +445,10 @@ Rectangle {
                 Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
                 Drag.proposedAction: Qt.CopyAction
                 Drag.mimeData: {
-                    var data = { "application/x-omadrive-items": JSON.stringify({ remote: pane.remote, account: pane.remote ? pane.folder.account : "", paths: dragPaths }) }
-                    if (!pane.remote)
-                        data["text/uri-list"] = dragPaths.map(function (p) { return "file://" + encodeURI(p) }).join("\r\n")
-                    return data
+                    return {
+                        "application/x-omadrive-items": JSON.stringify({ paths: dragPaths }),
+                        "text/uri-list": dragPaths.map(function (p) { return "file://" + encodeURI(p) }).join("\r\n")
+                    }
                 }
 
                 RowLayout {
@@ -525,7 +466,6 @@ Rectangle {
                         ToolTip.visible: cloudHover.hovered
                         ToolTip.delay: 400
                         ToolTip.text: row.cloud === "local" ? qsTr("Available on this device")
-                                    : row.cloud === "changed" ? qsTr("The copy on this device differs from OneDrive")
                                     : row.cloud === "pending" ? qsTr("Waiting to upload")
                                     : qsTr("Online only")
                     }
@@ -593,29 +533,8 @@ Rectangle {
         Label {
             Layout.fillWidth: true
             color: "#9a9aa0"
-            text: pane.remote && pane.folder.loading ? qsTr("Loading…")
-                : pane.markedCount > 0 ? qsTr("%n marked", "", pane.markedCount)
+            text: pane.markedCount > 0 ? qsTr("%n marked", "", pane.markedCount)
                 : qsTr("%n items", "", list.count)
-        }
-    }
-
-    ColumnLayout {
-        anchors.centerIn: parent
-        visible: pane.needsSignIn
-        spacing: 12
-        Label {
-            Layout.alignment: Qt.AlignHCenter
-            text: account.restoring ? qsTr("Connecting to OneDrive…")
-                : account.state === "signingIn" ? qsTr("Waiting for the Microsoft sign-in…")
-                : qsTr("Not signed in to OneDrive")
-            color: "#e6e6e6"
-        }
-        Button {
-            Layout.alignment: Qt.AlignHCenter
-            visible: account.state === "signedOut"
-            text: qsTr("Sign in with Microsoft (Enter)")
-            highlighted: true
-            onClicked: { pane.focusRequested(); account.signIn() }
         }
     }
 }

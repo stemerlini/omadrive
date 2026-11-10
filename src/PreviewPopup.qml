@@ -30,11 +30,6 @@ Popup {
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
-            Image {
-                visible: preview.cloud !== ""
-                source: preview.cloud !== "" ? "qrc:/icons/" + preview.cloud + ".svg" : ""
-                sourceSize: Qt.size(18, 18)
-            }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 2

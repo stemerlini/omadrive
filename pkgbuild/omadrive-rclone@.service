@@ -1,0 +1,23 @@
+[Unit]
+Description=OneDrive (%i) via rclone mount
+Documentation=https://github.com/stemerlini/omadrive
+
+[Service]
+Type=notify
+EnvironmentFile=%h/.config/omadrive/cloud/%i.env
+ExecStartPre=/usr/bin/mkdir -p ${MOUNTPOINT}
+ExecStartPre=/usr/bin/rm -f %t/omadrive-rclone-%i.sock
+ExecStart=/usr/bin/rclone mount ${REMOTE} ${MOUNTPOINT} \
+  --vfs-cache-mode full \
+  --vfs-cache-max-age 8760h \
+  --vfs-cache-max-size 50G \
+  --dir-cache-time 1h \
+  --poll-interval 1m \
+  --rc --rc-addr unix://%t/omadrive-rclone-%i.sock --rc-no-auth \
+  --log-level INFO
+ExecStop=/usr/bin/fusermount3 -uz ${MOUNTPOINT}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

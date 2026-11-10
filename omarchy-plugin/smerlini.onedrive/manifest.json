@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "smerlini.onedrive",
-  "name": "OneDrive",
-  "version": "1.0.0",
+  "name": "Cloud",
+  "version": "2.0.0",
   "author": "Stefano Merlini",
   "license": "MIT",
-  "description": "The files most recently changed in each OneDrive account signed in to omadrive, in the Omarchy bar.",
+  "description": "A cloud on the Omarchy bar for the OneDrive accounts rclone mounts through omadrive: connect, mount and open them.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,21 +13,20 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "OneDrive",
-    "description": "See the latest files changed in your OneDrive accounts and open them. Checks OneDrive through omadrive when the panel opens and, if enabled, every few minutes.",
+    "displayName": "Cloud",
+    "description": "Connect OneDrive accounts, mount or unmount them with rclone, and see files waiting to upload. Checks through omadrive when the panel opens and, if enabled, every few minutes.",
     "category": "Files",
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
       "autoRefresh": true,
-      "refreshIntervalSec": 300,
-      "filesPerAccount": 8
+      "refreshIntervalSec": 300
     },
     "schema": [
       {
         "key": "autoRefresh",
         "type": "boolean",
-        "label": "Check OneDrive in the background",
+        "label": "Check accounts in the background",
         "defaultValue": true
       },
       {
@@ -38,15 +37,6 @@
         "max": 3600,
         "step": 30,
         "defaultValue": 300
-      },
-      {
-        "key": "filesPerAccount",
-        "type": "integer",
-        "label": "Files shown per account",
-        "min": 3,
-        "max": 20,
-        "step": 1,
-        "defaultValue": 8
       }
     ]
   }

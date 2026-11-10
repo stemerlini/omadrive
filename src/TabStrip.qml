@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// The row of tabs above the panes, with the split switch and the account.
+// The row of tabs above the panes, with the split switch.
 // The tab in the focused pane is filled; with two panes, the other one is
 // outlined. Files dropped on a tab go into the folder it shows.
 RowLayout {
@@ -18,16 +18,12 @@ RowLayout {
 
     signal activated(int index)
     signal closeRequested(int index)
-    signal newTab(bool remote)
+    signal newTab()
     signal splitToggled()
     signal dropped(var drop, int index)
     signal helpRequested()
 
     spacing: 4
-
-    function countOf(remote) {
-        return tabs.filter(function (t) { return t.remote === remote }).length
-    }
 
     Flickable {
         id: scroller
@@ -51,7 +47,7 @@ RowLayout {
                     readonly property bool current: index === strip.activeTab
                     readonly property bool shownElsewhere: strip.split && !current
                         && (index === strip.leftTab || index === strip.rightTab)
-                    readonly property bool closable: strip.countOf(modelData.remote) > 1
+                    readonly property bool closable: strip.tabs.length > 1
 
                     width: Math.min(220, content.implicitWidth + 20)
                     height: 34
@@ -69,7 +65,7 @@ RowLayout {
                         anchors.rightMargin: 6
                         spacing: 6
                         Image {
-                            source: chip.modelData.remote ? "qrc:/icons/tab-cloud.svg" : "qrc:/icons/tab-device.svg"
+                            source: chip.modelData.folder.cloudMount ? "qrc:/icons/tab-cloud.svg" : "qrc:/icons/tab-device.svg"
                             sourceSize: Qt.size(16, 16)
                             Layout.preferredWidth: 16
                             Layout.preferredHeight: 16
@@ -100,7 +96,7 @@ RowLayout {
                     HoverHandler { id: chipHover }
                     ToolTip.visible: chipHover.hovered && !closeHover.hovered
                     ToolTip.delay: 600
-                    ToolTip.text: (chip.modelData.remote ? "OneDrive: " : "") + chip.modelData.folder.path
+                    ToolTip.text: chip.modelData.folder.path
                         + (chip.index < 9 ? "   Ctrl+" + (chip.index + 1) : "")
 
                     TapHandler {
@@ -129,12 +125,7 @@ RowLayout {
                 ToolTip.text: qsTr("New tab (Ctrl+T)")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
-                onClicked: newMenu.popup()
-                AppMenu {
-                    id: newMenu
-                    AppMenuItem { text: qsTr("New local tab"); iconName: "menu-folder"; onTriggered: strip.newTab(false) }
-                    AppMenuItem { text: qsTr("New %1 tab").arg(account.driveName); iconName: "tab-cloud"; onTriggered: strip.newTab(true) }
-                }
+                onClicked: strip.newTab()
             }
         }
     }
@@ -162,10 +153,5 @@ RowLayout {
         ToolTip.visible: hovered
         ToolTip.delay: 500
         onClicked: strip.helpRequested()
-    }
-
-    AccountBar {
-        Layout.leftMargin: 4
-        Layout.rightMargin: 4
     }
 }

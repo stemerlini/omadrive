@@ -1,5 +1,4 @@
 #include "backend.h"
-#include "mirror.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -9,6 +8,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QUrl>
 
 namespace {
@@ -80,8 +81,6 @@ QString Backend::copyOne(const QString &source, const QString &destination) {
 QString Backend::copyItems(const QStringList &paths, const QString &destination) {
     if (!QFileInfo(destination).isDir() || !QFileInfo(destination).isWritable())
         return tr("Cannot write to %1").arg(destination);
-    if (!Mirror::workLeak({}, paths, {}, destination).isEmpty())
-        return tr("Files from a work OneDrive stay in that account; nothing was changed");
     QString errors;
     for (const QString &path : paths) {
         const QString error = copyOne(path, destination);
@@ -94,8 +93,6 @@ QString Backend::copyItems(const QStringList &paths, const QString &destination)
 QString Backend::moveItems(const QStringList &paths, const QString &destination) {
     if (!QFileInfo(destination).isDir() || !QFileInfo(destination).isWritable())
         return tr("Cannot write to %1").arg(destination);
-    if (!Mirror::workLeak({}, paths, {}, destination).isEmpty())
-        return tr("Files from a work OneDrive stay in that account; nothing was changed");
     QString errors;
     for (const QString &path : paths) {
         const QFileInfo info(path);
@@ -179,4 +176,31 @@ void Backend::newWindow() {
 
 void Backend::copyText(const QString &text) {
     QGuiApplication::clipboard()->setText(text);
+}
+
+void Backend::share(const QString &path, bool edit) {
+    auto *process = new QProcess(this);
+    QStringList args{"agent", "share", QFileInfo(path).absoluteFilePath()};
+    if (edit)
+        args << "--edit";
+    connect(process, &QProcess::finished, this, [this, process, edit] {
+        process->deleteLater();
+        const QByteArray out = process->readAllStandardOutput().trimmed();
+        const QJsonObject reply = QJsonDocument::fromJson(out.mid(out.lastIndexOf('\n') + 1)).object();
+        const QString link = reply.value("link").toString();
+        if (reply.value("ok").toBool() && !link.isEmpty()) {
+            QGuiApplication::clipboard()->setText(link);
+            emit shared(edit ? tr("Edit link copied") : tr("View link copied"), false);
+        } else {
+            const QString error = reply.value("error").toString();
+            emit shared(error.isEmpty() ? tr("Could not get a link") : error, true);
+        }
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        process->deleteLater();
+        emit shared(tr("Could not get a link"), true);
+    });
+    process->start(QCoreApplication::applicationFilePath(), args);
 }
