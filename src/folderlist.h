@@ -9,7 +9,8 @@
 #include "rclone.h"
 
 // One pane's directory listing. Inside an rclone mount each file also has a
-// "cloud" state (online, local or pending), kept current while shown.
+// "cloud" state (online, local or pending), kept current while shown;
+// folders sum up what is inside them.
 class FolderList : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
@@ -58,6 +59,7 @@ private:
 
     void setError(const QString &error);
     void updateCloud();
+    void updateFolders();
 
     QString m_path, m_error;
     bool m_showHidden = false;
@@ -66,4 +68,7 @@ private:
     QTimer m_debounce;
     QTimer m_cloudPoll;
     Rclone::Mount m_mount;
+    int m_folderTick = 0;
+    bool m_folderBusy = false;
+    quint64 m_generation = 0;
 };

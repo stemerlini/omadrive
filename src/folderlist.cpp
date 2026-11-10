@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLocale>
+#include <QPointer>
 #include <QtConcurrent>
 
 #include <algorithm>
@@ -107,9 +108,20 @@ void FolderList::refresh() {
         return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
     });
 
+    // Folders keep their last state until the background pass updates it.
+    for (Entry &e : entries)
+        if (e.isDir)
+            for (const Entry &old : std::as_const(m_entries))
+                if (old.path == e.path) {
+                    e.cloud = old.cloud;
+                    break;
+                }
     beginResetModel();
     m_entries = entries;
     endResetModel();
+    ++m_generation;
+    m_folderBusy = false;
+    updateFolders();
 }
 
 QString FolderList::pathAt(int row) const {
@@ -128,8 +140,12 @@ int FolderList::indexOfPath(const QString &path) const {
 }
 
 void FolderList::updateCloud() {
+    if (++m_folderTick % 5 == 0)
+        updateFolders();
     for (int i = 0; i < m_entries.size(); ++i) {
         Entry &e = m_entries[i];
+        if (e.isDir)
+            continue;
         const QString cloud = Rclone::state(m_mount, e.path, e.isDir);
         if (cloud != e.cloud) {
             e.cloud = cloud;
@@ -169,4 +185,42 @@ void FolderList::setError(const QString &error) {
         return;
     m_error = error;
     emit errorChanged();
+}
+
+// Folder states walk their trees, so they are worked out in the background
+// (every 10 s while shown) and dropped if the listing changed meanwhile.
+void FolderList::updateFolders() {
+    if (!m_mount.isValid() || m_folderBusy)
+        return;
+    QStringList dirs;
+    for (const Entry &e : std::as_const(m_entries))
+        if (e.isDir)
+            dirs << e.path;
+    if (dirs.isEmpty())
+        return;
+    m_folderBusy = true;
+    const quint64 generation = m_generation;
+    const Rclone::Mount mount = m_mount;
+    QPointer<FolderList> self(this);
+    (void)QtConcurrent::run([self, generation, mount, dirs] {
+        for (const QString &dir : dirs) {
+            const QString state = Rclone::folderState(mount, dir);
+            if (!self)
+                return;
+            QMetaObject::invokeMethod(self, [self, generation, dir, state] {
+                if (!self || generation != self->m_generation)
+                    return;
+                const int row = self->indexOfPath(dir);
+                if (row >= 0 && self->m_entries[row].cloud != state) {
+                    self->m_entries[row].cloud = state;
+                    emit self->dataChanged(self->index(row), self->index(row), {CloudRole});
+                }
+            });
+        }
+        if (self)
+            QMetaObject::invokeMethod(self, [self, generation] {
+                if (self && generation == self->m_generation)
+                    self->m_folderBusy = false;
+            });
+    });
 }

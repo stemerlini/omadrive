@@ -128,6 +128,25 @@ private slots:
         QCOMPARE(Rclone::state(m, "/home/u/One Drive/d", true), QString());
     }
 
+    // A folder is pending if anything inside waits to upload, local only if every file is cached.
+    void rcloneFolderStateSumsUpItsFiles()
+    {
+        QTemporaryDir cache, root;
+        const Rclone::Mount m{root.path(), cache.path()};
+        QVERIFY(QDir().mkpath(root.path() + "/a/sub") && QDir().mkpath(root.path() + "/b"));
+        write(root.path() + "/a/sub/f", "x");
+        write(root.path() + "/b/f", "x");
+        QCOMPARE(Rclone::folderState(m, root.path() + "/a"), QString("online"));
+
+        QVERIFY(QDir().mkpath(cache.path() + "/a/sub"));
+        write(cache.path() + "/a/sub/f", R"({"Size":1,"Rs":[{"Pos":0,"Size":1}],"Dirty":false})");
+        QCOMPARE(Rclone::folderState(m, root.path() + "/a"), QString("local"));
+        write(root.path() + "/a/g", "x");
+        QCOMPARE(Rclone::folderState(m, root.path() + "/a"), QString("online"));
+        write(cache.path() + "/a/sub/f", R"({"Size":1,"Rs":[],"Dirty":true})");
+        QCOMPARE(Rclone::folderState(m, root.path() + "/a"), QString("pending"));
+    }
+
     void unreadableFolderKeepsThePreviousPath()
     {
         QTemporaryDir dir;

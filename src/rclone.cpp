@@ -1,7 +1,9 @@
 #include "rclone.h"
 
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -104,6 +106,28 @@ QString state(const Mount &mount, const QString &path, bool isDir) {
         covered = std::max(covered, r.second);
     }
     return covered >= size ? "local" : "online";
+}
+
+QString folderState(const Mount &mount, const QString &dir) {
+    const QString clean = QDir::cleanPath(dir);
+    if (!mount.isValid() || !inside(clean, mount.mountpoint))
+        return {};
+    // Nothing of it in the cache: online, and nothing can be waiting.
+    const QString meta = mount.metaRoot + clean.mid(mount.mountpoint.size());
+    if (!QFileInfo(meta).isDir())
+        return "online";
+    for (QDirIterator it(meta, QDir::Files | QDir::Hidden | QDir::System, QDirIterator::Subdirectories); it.hasNext();) {
+        QFile file(it.next());
+        if (file.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(file.readAll()).object().value("Dirty").toBool())
+            return "pending";
+    }
+    // Local only if every file is; stop at the first one that is not.
+    int seen = 0;
+    for (QDirIterator it(clean, QDir::Files | QDir::Hidden | QDir::System, QDirIterator::Subdirectories); it.hasNext();) {
+        if (++seen > 5000 || state(mount, it.next(), false) != "local")
+            return "online";
+    }
+    return "local";
 }
 
 }  // namespace Rclone

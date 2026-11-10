@@ -457,17 +457,22 @@ Rectangle {
                     anchors.rightMargin: 8
                     spacing: 10
                     Image {
-                        visible: row.cloud !== ""
-                        source: visible ? "qrc:/icons/" + row.cloud + ".svg" : ""
+                        // Inside a mount the column is kept while a folder's state is worked out.
+                        visible: row.cloud !== "" || pane.folder.cloudMount === true
+                        source: row.cloud !== "" ? "qrc:/icons/" + row.cloud + ".svg" : ""
                         sourceSize: Qt.size(16, 16)
                         Layout.preferredWidth: 16
                         Layout.preferredHeight: 16
                         HoverHandler { id: cloudHover }
-                        ToolTip.visible: cloudHover.hovered
+                        ToolTip.visible: cloudHover.hovered && row.cloud !== ""
                         ToolTip.delay: 400
-                        ToolTip.text: row.cloud === "local" ? qsTr("Available on this device")
-                                    : row.cloud === "pending" ? qsTr("Waiting to upload")
-                                    : qsTr("Online only")
+                        ToolTip.text: row.isDir
+                                      ? (row.cloud === "local" ? qsTr("Everything in it is on this device")
+                                         : row.cloud === "pending" ? qsTr("Something in it is waiting to upload")
+                                         : qsTr("Not all of it is on this device"))
+                                      : (row.cloud === "local" ? qsTr("Available on this device")
+                                         : row.cloud === "pending" ? qsTr("Waiting to upload")
+                                         : qsTr("Online only"))
                     }
                     Label {
                         Layout.fillWidth: true

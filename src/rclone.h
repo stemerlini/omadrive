@@ -24,5 +24,9 @@ Mount mountFor(const QString &path);
 Mount mountFor(const QString &path, const QVector<Mount> &mounts);
 // "online", "local" or "pending" for a file; empty for folders.
 QString state(const Mount &mount, const QString &path, bool isDir);
+// For a folder: "pending" when anything in it waits to upload, "local" when
+// every file in it is on this device, else "online". Lists the folder tree
+// through the mount, so call it off the GUI thread.
+QString folderState(const Mount &mount, const QString &dir);
 
 }  // namespace Rclone
