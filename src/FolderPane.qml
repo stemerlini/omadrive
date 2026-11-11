@@ -46,10 +46,10 @@ Rectangle {
         { label: qsTr("&Empty file"), icon: "new-file", name: qsTr("New file"), content: "" }
     ]
 
-    color: "#131316"
+    color: theme.background
     radius: theme.radius
-    border.width: active || pageDrop.containsDrag ? 2 : 1
-    border.color: pageDrop.containsDrag ? theme.accent : active ? theme.accent : "#2a2a2e"
+    border.width: pageDrop.containsDrag ? 2 : 1
+    border.color: pageDrop.containsDrag || (active && paired) ? theme.accent : Qt.alpha(theme.accent, 0.2)
 
     function focusList() { list.forceActiveFocus() }
     function remember() { tab.selected = currentItemPath }
@@ -318,15 +318,16 @@ Rectangle {
                             id: crumb
                             required property int index
                             Label {
-                                visible: crumb.index > 0
+                                visible: crumb.index > 1
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: "›"
-                                color: "#5a5a60"
+                                text: "/"
+                                color: theme.muted
                             }
                             Label {
                                 padding: 4
                                 text: crumb.index === 0 ? "/" : pane.segments[crumb.index - 1]
-                                color: crumb.index === pane.segments.length ? "#e6e6e6" : theme.accent
+                                color: crumb.index === pane.segments.length ? theme.accent : theme.foreground
+                                font.bold: crumb.index === pane.segments.length
                                 font.underline: crumbHover.hovered
                                 HoverHandler { id: crumbHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: { pane.focusRequested(); pane.goTo(crumb.index) } }
@@ -344,7 +345,7 @@ Rectangle {
             ToolButton {
                 implicitWidth: 34; implicitHeight: 34; focusPolicy: Qt.NoFocus
                 icon.source: "qrc:/icons/tree.svg"; icon.width: 18; icon.height: 18
-                icon.color: pane.showTree ? theme.accent : "#c0c0c6"
+                icon.color: pane.showTree ? theme.accent : theme.muted
                 ToolTip.text: pane.showTree ? qsTr("Hide folder columns (`)") : qsTr("Show folder columns (`)")
                 ToolTip.visible: hovered; ToolTip.delay: 500
                 onClicked: pane.treeToggled()
@@ -357,7 +358,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: pane.folder.error !== ""
             text: pane.folder.error
-            color: "#f7768e"
+            color: theme.error
             wrapMode: Text.Wrap
         }
 
@@ -378,6 +379,11 @@ Rectangle {
             onOpened: path => { pane.focusRequested(); pane.openFolder(path) }
             onOpenedInNewTab: path => pane.openInNewTab(path)
             currentPath: pane.currentItemPath
+            currentIsDir: list.currentItem ? list.currentItem.isDir : false
+            currentSize: list.currentItem ? list.currentItem.sizeText : ""
+            currentModified: list.currentItem ? list.currentItem.modified : ""
+            currentCloud: pane.currentItemCloud
+            onEntered: (dir, path) => { pane.focusRequested(); pane.lastPath = path; pane.lastIndex = 0; pane.folder.path = dir; pane.focusList() }
             onSelected: path => { pane.focusRequested(); pane.select(pane.folder.indexOfPath(path), 0); pane.focusList() }
             onActivated: path => { pane.focusRequested(); pane.select(pane.folder.indexOfPath(path), 0); pane.openCurrent() }
         }
@@ -393,6 +399,24 @@ Rectangle {
             interactive: false
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
+            headerPositioning: ListView.OverlayHeader
+            header: Rectangle {
+                z: 2
+                width: ListView.view.width
+                height: 26
+                color: theme.panel
+                radius: Math.min(4, theme.radius)
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    spacing: 10
+                    Item { visible: pane.folder.cloudMount === true; Layout.preferredWidth: 16 }
+                    Label { Layout.fillWidth: true; text: qsTr("Name"); font.bold: true; font.pixelSize: 12; color: theme.muted }
+                    Label { Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight; text: qsTr("Size"); font.bold: true; font.pixelSize: 12; color: theme.muted }
+                    Label { Layout.preferredWidth: 130; text: qsTr("Modified"); font.bold: true; font.pixelSize: 12; color: theme.muted }
+                }
+            }
 
             Keys.onPressed: event => {
                 const page = Math.max(1, Math.floor(height / 28) - 1)
@@ -437,7 +461,7 @@ Rectangle {
                 border.width: folderDrop.containsDrag ? 2 : 0
                 border.color: theme.accent
                 color: pane.marked[path] ? Qt.alpha(theme.accent, 0.28)
-                     : ListView.isCurrentItem ? (pane.active ? Qt.alpha(theme.accent, 0.16) : "#1c1c20")
+                     : ListView.isCurrentItem ? Qt.alpha(theme.accent, pane.active ? 0.22 : 0.08)
                      : "transparent"
 
                 Drag.active: dragHandler.active
@@ -478,18 +502,19 @@ Rectangle {
                         Layout.fillWidth: true
                         text: row.isDir ? row.name + "/" : row.name
                         elide: Text.ElideRight
-                        color: row.isDir ? theme.accent : "#e6e6e6"
+                        color: row.isDir ? theme.accent : row.ListView.isCurrentItem ? theme.bright : theme.foreground
+                        font.bold: row.ListView.isCurrentItem && pane.active
                     }
                     Label {
                         Layout.preferredWidth: 80
                         horizontalAlignment: Text.AlignRight
                         text: row.sizeText
-                        color: "#9a9aa0"
+                        color: theme.muted
                     }
                     Label {
                         Layout.preferredWidth: 130
                         text: row.modified
-                        color: "#9a9aa0"
+                        color: theme.muted
                         elide: Text.ElideRight
                     }
                 }
@@ -535,11 +560,33 @@ Rectangle {
 
         }
 
-        Label {
+        // Status line, as in Citadel: counts on the left, where the folder lives on the right.
+        Rectangle {
             Layout.fillWidth: true
-            color: "#9a9aa0"
-            text: pane.markedCount > 0 ? qsTr("%n marked", "", pane.markedCount)
-                : qsTr("%n items", "", list.count)
+            Layout.leftMargin: -8
+            Layout.rightMargin: -8
+            Layout.bottomMargin: -8
+            implicitHeight: 26
+            color: theme.panel
+            radius: theme.radius
+            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Qt.alpha(theme.accent, 0.2) }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 12
+                Label {
+                    text: pane.markedCount > 0 ? qsTr("%n marked", "", pane.markedCount) : qsTr("%n items", "", list.count)
+                    color: pane.markedCount > 0 ? theme.accent : theme.muted
+                    font.pixelSize: 12
+                }
+                Item { Layout.fillWidth: true }
+                Label {
+                    text: pane.folder.cloudMount ? qsTr("☁ OneDrive") : qsTr("local")
+                    color: pane.folder.cloudMount ? theme.secondary : theme.muted
+                    font.pixelSize: 12
+                }
+            }
         }
     }
 }

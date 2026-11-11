@@ -13,10 +13,15 @@ ApplicationWindow {
     minimumHeight: 460
     visible: true
     title: "Pathfinder"
-    color: "#0e0e10"
+    color: theme.background
+    font.family: theme.fontFamily
+    font.pixelSize: 14
 
-    Material.theme: Material.Dark
+    Material.theme: theme.dark ? Material.Dark : Material.Light
     Material.accent: theme.accent
+    Material.background: theme.surface
+    Material.foreground: theme.foreground
+    Material.primary: theme.accent
     Material.roundedScale: theme.radius
 
     // Tabs are { folder, selected } objects. One pane shows the current tab;
@@ -488,28 +493,58 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 10
-            spacing: 8
+            spacing: 0
 
-            TabStrip {
+            // Top bar, as in Citadel: the brand, then the tabs.
+            Rectangle {
                 Layout.fillWidth: true
-                tabs: win.tabs
-                leftTab: win.leftTab
-                rightTab: win.rightTab
-                split: win.split
-                activeTab: win.activeTab
-                labelFor: win.tabLabel
-                onActivated: index => win.showTab(index)
-                onCloseRequested: index => win.closeTab(index)
-                onNewTab: win.newTab("")
-                onSplitToggled: win.toggleSplit()
-                onHelpRequested: help.open()
-                onDropped: (drop, index) => win.dropOnTab(drop, win.tabs[index])
+                implicitHeight: 56
+                color: theme.panel
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Qt.alpha(theme.accent, 0.2) }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 10
+                    spacing: 12
+
+                    Image {
+                        source: "qrc:/icons/app.svg"
+                        sourceSize: Qt.size(32, 32)
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        smooth: false
+                    }
+                    Column {
+                        Layout.rightMargin: 14
+                        spacing: 0
+                        Label { text: "Pathfinder"; font.bold: true; font.pixelSize: 16; color: theme.accent }
+                        Label { text: qsTr("local + OneDrive"); font.pixelSize: 11; color: theme.muted }
+                    }
+                    Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 30; color: Qt.alpha(theme.accent, 0.2) }
+
+                    TabStrip {
+                        Layout.fillWidth: true
+                        tabs: win.tabs
+                        leftTab: win.leftTab
+                        rightTab: win.rightTab
+                        split: win.split
+                        activeTab: win.activeTab
+                        labelFor: win.tabLabel
+                        onActivated: index => win.showTab(index)
+                        onCloseRequested: index => win.closeTab(index)
+                        onNewTab: win.newTab("")
+                        onSplitToggled: win.toggleSplit()
+                        onHelpRequested: help.open()
+                        onDropped: (drop, index) => win.dropOnTab(drop, win.tabs[index])
+                    }
+                }
             }
 
             RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.margins: 10
                 spacing: 10
 
                 FolderPane {
@@ -563,15 +598,15 @@ ApplicationWindow {
         width: Math.min(toastLabel.implicitWidth + 32, win.width - 80)
         height: toastLabel.implicitHeight + 16
         radius: theme.radius
-        color: "#1c1c20"
-        border.color: win.messageIsError ? "#f7768e" : theme.accent
+        color: theme.surface
+        border.color: win.messageIsError ? theme.error : theme.accent
         Label {
             id: toastLabel
             anchors.centerIn: parent
             width: Math.min(implicitWidth, parent.width - 32)
             elide: Text.ElideRight
             text: toast.text
-            color: win.messageIsError ? "#f7768e" : "#e6e6e6"
+            color: win.messageIsError ? theme.error : theme.foreground
         }
         TapHandler { onTapped: win.message = "" }
     }
@@ -600,13 +635,13 @@ ApplicationWindow {
         topPadding: 4
         standardButtons: Dialog.Ok | Dialog.Cancel
 
-        background: Rectangle { color: "#18181b"; radius: theme.radius; border.color: "#2a2a2e" }
+        background: Rectangle { color: theme.surface; radius: theme.radius; border.color: theme.accent }
         header: Label {
             text: prompt.title
             padding: 16
             bottomPadding: 4
             font.bold: true
-            color: "#e6e6e6"
+            color: theme.accent
         }
         footer: DialogButtonBox {
             standardButtons: prompt.standardButtons
@@ -667,7 +702,7 @@ ApplicationWindow {
         // The name prompt opens only once this has closed, so it keeps the focus.
         onClosed: chosen >= 0 ? win.askNew(chosen) : win.activePane.focusList()
 
-        background: Rectangle { color: "#18181b"; radius: theme.radius; border.color: "#2a2a2e" }
+        background: Rectangle { color: theme.surface; radius: theme.radius; border.color: theme.accent }
 
         contentItem: Column {
             spacing: 6
@@ -675,7 +710,7 @@ ApplicationWindow {
                 leftPadding: 8
                 text: qsTr("New")
                 font.bold: true
-                color: "#9a9aa0"
+                color: theme.accent
             }
             ListView {
                 id: kindList
@@ -729,14 +764,14 @@ ApplicationWindow {
                         textFormat: Text.StyledText
                         text: kind.modelData.label.slice(0, kind.key) + "<u>" + kind.modelData.label.charAt(kind.key + 1) + "</u>"
                               + kind.modelData.label.slice(kind.key + 2)
-                        color: kind.current ? theme.accent : "#e6e6e6"
+                        color: kind.current ? theme.accent : theme.foreground
                     }
                     Label {
                         anchors.right: parent.right
                         anchors.rightMargin: 12
                         anchors.verticalCenter: parent.verticalCenter
                         text: kind.modelData.label.charAt(kind.key + 1).toUpperCase()
-                        color: "#5a5a60"
+                        color: theme.muted
                     }
                     HoverHandler { onHoveredChanged: if (hovered) kindList.currentIndex = kind.index }
                     TapHandler { onTapped: newPopup.choose(kind.index) }
@@ -752,7 +787,7 @@ ApplicationWindow {
         padding: 20
         onClosed: win.activePane.focusList()
 
-        background: Rectangle { color: "#18181b"; radius: theme.radius; border.color: "#2a2a2e" }
+        background: Rectangle { color: theme.surface; radius: theme.radius; border.color: theme.accent }
 
         Grid {
             columnSpacing: 32
@@ -792,8 +827,8 @@ ApplicationWindow {
                 delegate: Row {
                     required property var modelData
                     spacing: 16
-                    Label { width: 150; text: parent.modelData[0]; color: theme.accent; font.bold: true; elide: Text.ElideRight }
-                    Label { width: 270; text: parent.modelData[1]; wrapMode: Text.Wrap }
+                    Label { width: 220; text: parent.modelData[0]; color: theme.accent; font.bold: true; elide: Text.ElideRight }
+                    Label { width: 320; text: parent.modelData[1]; wrapMode: Text.Wrap }
                 }
             }
         }

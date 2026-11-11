@@ -7,6 +7,7 @@
         <file alias="TabStrip.qml">TabStrip.qml</file>
         <file alias="PreviewPopup.qml">PreviewPopup.qml</file>
         <file alias="PdfView.qml">PdfView.qml</file>
+        <file alias="icons/app.svg">../pkgbuild/pathfinder.svg</file>
         <file alias="icons/menu-open.svg">icons/menu-open.svg</file>
         <file alias="icons/menu-tab.svg">icons/menu-tab.svg</file>
         <file alias="icons/menu-preview.svg">icons/menu-preview.svg</file>

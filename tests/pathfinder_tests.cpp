@@ -161,7 +161,17 @@ private slots:
     {
         QTemporaryDir dir;
         Theme theme(dir.path());
-        QCOMPARE(theme.accent(), QString("#FFD60A"));
+        QCOMPARE(theme.accent(), QString("#7aa2f7"));
+        QCOMPARE(theme.background(), QString("#1a1b26"));
+
+        // A theme naming only some colours keeps them and derives the rest.
+        write(dir.filePath("colors.toml"), "mode = \"light\"\nbackground = \"#ffffff\"\nforeground = \"#000000\"\nblue = \"#0000ff\"\n");
+        bool dark = true;
+        const auto colors = Theme::readColors(dir.filePath("colors.toml"), &dark);
+        QVERIFY(!dark);
+        QCOMPARE(colors["accent"], QString("#0000ff"));
+        QCOMPARE(colors["background"], QString("#ffffff"));
+        QCOMPARE(colors["dark_foreground"], QColor::fromRgbF(0.45, 0.45, 0.45).name());
     }
 
     void translatorFallsBackToEnglish()

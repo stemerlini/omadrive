@@ -17,10 +17,10 @@ Popup {
     padding: 14
 
     background: Rectangle {
-        color: "#17171b"
+        color: theme.surface
         radius: theme.radius
         border.width: 1
-        border.color: "#2a2a2e"
+        border.color: theme.accent
     }
 
     ColumnLayout {
@@ -39,13 +39,13 @@ Popup {
                     font.bold: true
                     font.pixelSize: 16
                     elide: Text.ElideMiddle
-                    color: "#e6e6e6"
+                    color: theme.accent
                 }
                 Label {
                     Layout.fillWidth: true
                     text: preview.details
                     elide: Text.ElideRight
-                    color: "#9a9aa0"
+                    color: theme.muted
                 }
             }
             ToolButton {
@@ -85,7 +85,7 @@ Popup {
                 TextArea {
                     readOnly: true
                     text: preview.kind === "text" ? preview.text : ""
-                    font.family: "monospace"
+                    font.family: theme.fontFamily
                     wrapMode: TextEdit.NoWrap
                     selectByMouse: true
                     focusPolicy: Qt.NoFocus
@@ -114,7 +114,7 @@ Popup {
                     padding: 3
                     text: modelData
                     elide: Text.ElideRight
-                    color: modelData.endsWith("/") ? theme.accent : "#e6e6e6"
+                    color: modelData.endsWith("/") ? theme.accent : theme.foreground
                 }
             }
 
@@ -126,7 +126,7 @@ Popup {
                 visible: preview.kind === "info" || preview.kind === "error"
                          || (preview.kind === "pdf" && pdf.status === Loader.Error)
                          || (preview.kind === "folder" && preview.entries.length === 0)
-                color: preview.kind === "error" ? "#f7768e" : "#9a9aa0"
+                color: preview.kind === "error" ? theme.error : theme.muted
                 text: preview.kind === "error" ? preview.details
                     : preview.kind === "folder" ? qsTr("This folder is empty")
                     : preview.kind === "pdf" ? qsTr("Install qt6-webengine to preview PDF files")
@@ -137,7 +137,7 @@ Popup {
         Label {
             Layout.fillWidth: true
             text: qsTr("↑ ↓ next file   Enter open   Space or Esc close")
-            color: "#5a5a60"
+            color: theme.muted
             horizontalAlignment: Text.AlignHCenter
         }
     }

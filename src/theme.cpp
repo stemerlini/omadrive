@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -61,21 +62,59 @@ void Theme::refreshRounding() {
     m_roundingTimeout.start();
 }
 
-QString Theme::readAccent(const QString &path) {
+QHash<QString, QString> Theme::readColors(const QString &path, bool *dark) {
+    QHash<QString, QString> colors{
+        {"accent", "#7aa2f7"},           {"background", "#1a1b26"},
+        {"dark_background", "#16161e"},  {"lighter_background", "#24283b"},
+        {"foreground", "#a9b1d6"},       {"bright_foreground", "#c0caf5"},
+        {"dark_foreground", "#565f89"},  {"magenta", "#bb9af7"},
+        {"green", "#9ece6a"},            {"yellow", "#e0af68"},
+        {"red", "#f7768e"},
+    };
+    QString text;
     QFile file(path);
-    if (file.open(QIODevice::ReadOnly)) {
-        const QRegularExpression expression(R"re(^\s*accent\s*=\s*["'](#[0-9a-fA-F]{6})["'])re",
-                                            QRegularExpression::MultilineOption);
-        const auto match = expression.match(QString::fromUtf8(file.readAll()));
-        if (match.hasMatch())
-            return match.captured(1);
+    if (file.open(QIODevice::ReadOnly))
+        text = QString::fromUtf8(file.readAll());
+    const QRegularExpression entry(R"re(^\s*([a-z_]+)\s*=\s*["'](#[0-9a-fA-F]{6})["'])re",
+                                   QRegularExpression::MultilineOption);
+    QHash<QString, QString> read;
+    for (auto it = entry.globalMatch(text); it.hasNext();) {
+        const auto match = it.next();
+        read.insert(match.captured(1), match.captured(2));
     }
-    return "#FFD60A";
+    for (auto it = read.cbegin(); it != read.cend(); ++it)
+        colors.insert(it.key(), it.value());
+    // Older themes name only the basics; derive the rest from them.
+    if (!read.contains("accent") && read.contains("blue"))
+        colors["accent"] = read["blue"];
+    const QColor fg(colors["foreground"]), bg(colors["background"]);
+    auto mix = [&](double t) {
+        return QColor::fromRgbF(bg.redF() + (fg.redF() - bg.redF()) * t, bg.greenF() + (fg.greenF() - bg.greenF()) * t,
+                                bg.blueF() + (fg.blueF() - bg.blueF()) * t).name();
+    };
+    if (read.contains("background")) {
+        if (!read.contains("dark_background")) colors["dark_background"] = QColor(bg).darker(115).name();
+        if (!read.contains("lighter_background")) colors["lighter_background"] = mix(0.08);
+    }
+    if (read.contains("foreground")) {
+        if (!read.contains("dark_foreground")) colors["dark_foreground"] = mix(0.55);
+        if (!read.contains("bright_foreground")) colors["bright_foreground"] = QColor(fg).lighter(115).name();
+    }
+    if (dark) {
+        static const QRegularExpression mode(R"re(^\s*mode\s*=\s*["'](\w+)["'])re", QRegularExpression::MultilineOption);
+        const auto match = mode.match(text);
+        *dark = match.hasMatch() ? match.captured(1) != "light" : bg.lightnessF() < 0.5;
+    }
+    return colors;
+}
+
+QString Theme::fontFamily() const {
+    return QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
 }
 
 // Black or white, whichever reads on the accent (WCAG relative luminance).
 QString Theme::accentForeground() const {
-    const QColor c(m_accent);
+    const QColor c(accent());
     auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
     const double luminance = .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
     return luminance > .179 ? "black" : "white";
@@ -100,9 +139,11 @@ void Theme::reload() {
         if (QFileInfo::exists(path))
             m_watcher.addPath(path);
 
-    const auto accent = readAccent(m_directory + "/theme/colors.toml");
-    if (accent != m_accent) {
-        m_accent = accent;
+    bool dark = true;
+    const auto colors = readColors(m_directory + "/theme/colors.toml", &dark);
+    if (colors != m_colors || dark != m_dark) {
+        m_colors = colors;
+        m_dark = dark;
         emit changed();
     }
 }

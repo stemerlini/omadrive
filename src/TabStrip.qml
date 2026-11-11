@@ -53,9 +53,9 @@ RowLayout {
                     height: 34
                     radius: theme.radius
                     color: tabDrop.containsDrag ? Qt.alpha(theme.accent, 0.35)
-                         : current ? Qt.alpha(theme.accent, 0.22)
-                         : chipHover.hovered ? "#1c1c20" : "transparent"
-                    border.width: shownElsewhere || tabDrop.containsDrag ? 1 : 0
+                         : current ? Qt.alpha(theme.accent, 0.15)
+                         : chipHover.hovered ? Qt.alpha(theme.accent, 0.08) : "transparent"
+                    border.width: current || shownElsewhere || tabDrop.containsDrag ? 1 : 0
                     border.color: theme.accent
 
                     RowLayout {
@@ -75,7 +75,7 @@ RowLayout {
                             Layout.maximumWidth: 150
                             text: strip.labelFor(chip.modelData)
                             elide: Text.ElideMiddle
-                            color: chip.current ? "#e6e6e6" : "#9a9aa0"
+                            color: chip.current ? theme.accent : theme.foreground
                             font.bold: chip.current
                         }
                         // Keeps the width steady whether or not the × shows.
@@ -86,7 +86,7 @@ RowLayout {
                                 anchors.centerIn: parent
                                 visible: chip.closable && (chipHover.hovered || chip.current)
                                 text: "×"
-                                color: closeHover.hovered ? "#e6e6e6" : "#7a7a80"
+                                color: closeHover.hovered ? theme.error : theme.muted
                                 HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: strip.closeRequested(chip.index) }
                             }
@@ -134,7 +134,7 @@ RowLayout {
         icon.source: strip.split ? "qrc:/icons/single.svg" : "qrc:/icons/split.svg"
         icon.width: 18
         icon.height: 18
-        icon.color: strip.split ? theme.accent : "#c0c0c6"
+        icon.color: strip.split ? theme.accent : theme.muted
         implicitWidth: 34
         implicitHeight: 34
         focusPolicy: Qt.NoFocus

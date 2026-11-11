@@ -2,7 +2,7 @@
 
 ![pathfinder](assets/banner.png)
 
-Tabbed file manager for Omarchy (C++ / Qt Quick), modelled on One Commander, with OneDrive status and actions inside rclone-mounted folders. One window, one pane; `Ctrl+\` opens a second pane beside it for copying, and `pathfinder <folder>` opens a folder. Above the files, folder columns (One Commander's Miller columns) show every folder on the way to the current one; the folders above the current one are thin strips with their names turned 90° (click one to go there), and the current folder is a full column of its folders and files that follows the highlight. Hide them with `` ` `` or `Ctrl+B`. Tabs, the split and the highlighted files are remembered in `~/.config/pathfinder/tabs.conf`.
+Tabbed file manager for Omarchy (C++ / Qt Quick), modelled on One Commander, with OneDrive status and actions inside rclone-mounted folders. One window, one pane; `Ctrl+\` opens a second pane beside it for copying, and `pathfinder <folder>` opens a folder. Above the files, folder columns (One Commander's Miller columns) show every folder on the way to the current one; the folders above the current one are thin strips with their names turned 90° (click one to go there), the current folder is a full column of its folders and files that follows the highlight, and the last column looks ahead: the contents of the highlighted folder (click an entry there to go in with it highlighted), or the highlighted file's size, date and OneDrive state. Hide them with `` ` `` or `Ctrl+B`. Colours and font follow the current Omarchy theme (its whole palette and the monospace font), falling back to Tokyo Night. Tabs, the split and the highlighted files are remembered in `~/.config/pathfinder/tabs.conf`.
 
 Keys follow Windows and One Commander:
 

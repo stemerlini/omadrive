@@ -12,8 +12,8 @@ Menu {
     delegate: AppMenuItem {}
     background: Rectangle {
         implicitWidth: 270
-        color: "#18181b"
+        color: theme.surface
         radius: theme.radius
-        border.color: "#2a2a2e"
+        border.color: Qt.alpha(theme.accent, 0.5)
     }
 }

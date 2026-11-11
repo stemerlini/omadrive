@@ -27,12 +27,12 @@ MenuItem {
             Layout.fillWidth: true
             text: item.text
             elide: Text.ElideRight
-            color: !item.enabled ? "#55555b" : item.highlighted ? theme.accent : "#e6e6e6"
+            color: !item.enabled ? Qt.alpha(theme.muted, 0.6) : item.highlighted ? theme.accent : theme.foreground
         }
         Label {
             visible: item.hint !== ""
             text: item.hint
-            color: "#5a5a60"
+            color: theme.muted
             font.pixelSize: 12
         }
     }
