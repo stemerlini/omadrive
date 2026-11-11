@@ -1,86 +1,83 @@
-// Validates what `omadrive --recent` printed before the panel shows any of it.
+// Validates what `omadrive cloud status` printed before the panel shows any of it.
 
 var MAX_ACCOUNTS = 8
-var MAX_FILES = 20
 var MAX_TEXT = 300
+var MAX_PATH = 1024
 
-function text(value) {
+function text(value, limit) {
+  var max = limit || MAX_TEXT
   var s = typeof value === "string" ? value : ""
-  s = s.replace(/[\u0000-\u001f\u007f]/g, " ")
-  return s.length > MAX_TEXT ? s.substring(0, MAX_TEXT - 1) + "…" : s
+  s = s.replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, " ")
+  return s.length > max ? s.substring(0, max - 1) + "…" : s
 }
 
 function number(value) {
-  var n = Number(value)
-  return isFinite(n) && n >= 0 ? n : 0
+  var n = typeof value === "number" ? value : Number(value)
+  return isFinite(n) && n >= 0 ? Math.floor(n) : 0
 }
 
-function stamp(value) {
-  var s = text(value)
-  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(s)) return null
-  var d = new Date(s)
-  return isNaN(d.getTime()) ? null : d
+// rclone remote names are the identifier passed back to `omadrive cloud`.
+function remote(value) {
+  var s = typeof value === "string" ? value : ""
+  return s.length > 0 && s.length <= 64 && /^[A-Za-z0-9_.-]+$/.test(s) && s.charAt(0) !== "-" ? s : ""
 }
 
-// Only https links to Microsoft's OneDrive and SharePoint hosts are opened.
-function webUrl(value) {
-  var s = text(value)
-  var m = s.match(/^https:\/\/([A-Za-z0-9.-]+)(\/|$)/)
-  if (!m) return ""
-  var host = m[1].toLowerCase()
-  var ok = /(^|\.)(sharepoint\.com|onedrive\.live\.com|live\.net|onedrive\.com|1drv\.ms)$/.test(host)
-  return ok ? s : ""
-}
-
-// A local copy must be inside the account's mirror folder.
-function localPath(value, mirror) {
-  var s = text(value)
-  if (!mirror || mirror.charAt(0) !== "/" || s.indexOf(mirror + "/") !== 0) return ""
+// A mount folder must be absolute and never climb out with "..".
+function mountpoint(value) {
+  var s = typeof value === "string" ? value : ""
+  if (s.length === 0 || s.length > MAX_PATH || s.charAt(0) !== "/") return ""
+  if (/[\u0000-\u001f\u007f]/.test(s)) return ""
   if (/(^|\/)\.\.(\/|$)/.test(s)) return ""
   return s
 }
 
-function parse(raw, limit) {
+function parse(raw) {
   var data
   try {
     data = JSON.parse(String(raw || ""))
   } catch (e) {
-    return { ok: false, accounts: [] }
+    return { ok: false, error: "", accounts: [] }
   }
-  var list = data && Array.isArray(data.accounts) ? data.accounts.slice(0, MAX_ACCOUNTS) : []
-  var perAccount = Math.max(1, Math.min(MAX_FILES, limit || 8))
+  if (!data || typeof data !== "object" || Array.isArray(data)) return { ok: false, error: "", accounts: [] }
+  if (data.ok !== true) return { ok: false, error: text(data.error), accounts: [] }
+  var list = Array.isArray(data.accounts) ? data.accounts : []
   var accounts = []
-  for (var i = 0; i < list.length; i++) {
-    var a = list[i] || {}
-    var mirror = text(a.mirror)
-    var files = []
-    var raw = Array.isArray(a.files) ? a.files.slice(0, perAccount) : []
-    for (var j = 0; j < raw.length; j++) {
-      var f = raw[j] || {}
-      var path = text(f.path)
-      files.push({
-        name: text(f.name) || "?",
-        folder: path ? path.substring(0, path.lastIndexOf("/")) || "/" : "",
-        changed: stamp(f.changed),
-        by: text(f.modifiedBy),
-        size: number(f.size),
-        webUrl: webUrl(f.webUrl),
-        local: localPath(f.local, mirror),
-        isLocal: f.isLocal === true
-      })
-    }
+  var seen = {}
+  for (var i = 0; i < list.length && accounts.length < MAX_ACCOUNTS; i++) {
+    var a = list[i]
+    if (!a || typeof a !== "object") continue
+    var id = remote(a.remote)
+    if (id === "" || seen[id]) continue
+    seen[id] = true
+    var work = a.work === true || a.driveType === "business"
+    var mounted = a.mounted === true
+    var used = number(a.used)
+    var total = number(a.total)
     accounts.push({
-      id: text(a.id),
-      name: text(a.name),
-      driveName: text(a.driveName) || "OneDrive",
-      active: a.active === true,
-      used: number(a.used),
-      total: number(a.total),
-      error: text(a.error),
-      files: files
+      remote: id,
+      label: text(a.label) || id,
+      work: work,
+      mountpoint: mountpoint(a.mountpoint),
+      configured: a.configured === true,
+      mounted: mounted,
+      pending: mounted ? number(a.pending) : 0,
+      used: total > 0 ? Math.min(used, total) : used,
+      total: total,
+      error: text(a.error)
     })
   }
-  return { ok: true, accounts: accounts }
+  return { ok: true, error: "", accounts: accounts }
+}
+
+// Reply to `omadrive cloud mount|unmount`.
+function parseResult(raw) {
+  try {
+    var data = JSON.parse(String(raw || ""))
+    if (data && data.ok === true) return { ok: true, error: "" }
+    return { ok: false, error: text(data && data.error) }
+  } catch (e) {
+    return { ok: false, error: "" }
+  }
 }
 
 function bytes(n, fmt) {

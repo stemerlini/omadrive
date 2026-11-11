@@ -24,8 +24,14 @@ public:
     // Starts another Omadrive window with fresh tabs.
     Q_INVOKABLE void newWindow();
     Q_INVOKABLE void copyText(const QString &text);
+    // Asks `omadrive agent share` for a OneDrive link to a file in an rclone
+    // mount and copies it; shared() reports how it went.
+    Q_INVOKABLE void share(const QString &path, bool edit);
 
     static QString uniquePath(const QString &directory, const QString &name);
+
+signals:
+    void shared(const QString &message, bool isError);
 
 private:
     QString copyOne(const QString &source, const QString &destination);

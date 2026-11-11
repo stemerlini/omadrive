@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// omadrive MCP server — exposes OneDrive (personal and work/SES) to agents over
-// the Model Context Protocol. Every tool shells out to `omadrive agent <cmd>`
-// with an argument array (no shell), so the same account safety the app and CLI
-// enforce applies here too: operations name their account, work files never
-// leave their account, and a work account can only write to its own personal
-// OneDrive, never a SharePoint shared library.
+// omadrive MCP server — exposes OneDrive accounts (rclone remotes, personal and
+// work) to agents over the Model Context Protocol. Every tool shells out to
+// `omadrive agent <cmd>` with an argument array (no shell), so the same account
+// safety the CLI enforces applies here too: operations name their account and
+// work files never leave their account.
 //
 // Transport: newline-delimited JSON-RPC 2.0 over stdio. No dependencies.
 
@@ -25,7 +24,7 @@ try {
 // CLI prints. A non-zero exit still carries a JSON {ok:false,error} line.
 function runAgent(args) {
   return new Promise((resolve) => {
-    execFile(OMADRIVE, ["agent", ...args], { maxBuffer: 8 * 1024 * 1024, timeout: 120000 }, (err, stdout, stderr) => {
+    execFile(OMADRIVE, ["agent", ...args], { maxBuffer: 8 * 1024 * 1024, timeout: 600000 }, (err, stdout, stderr) => {
       const text = (stdout || "").trim();
       if (text) {
         try {
@@ -50,13 +49,13 @@ function withAccount(args, a) {
 }
 
 const accountProp = {
-  account: { type: "string", description: "Account id or email; defaults to the active account." },
+  account: { type: "string", description: "Account name (e.g. onedrive-personal, Personal, SES); defaults to the personal account." },
 };
 
 const tools = [
   {
     name: "onedrive_accounts",
-    description: "List the signed-in OneDrive accounts (id, email, drive name, whether it is a work/SES account, and the local mirror folder).",
+    description: "List the connected OneDrive accounts (rclone remotes): id, name, whether it is a work account, and the local folder it is mounted at.",
     inputSchema: { type: "object", properties: {} },
     run: () => runAgent(["accounts"]),
   },
@@ -68,13 +67,13 @@ const tools = [
   },
   {
     name: "onedrive_stat",
-    description: "Get metadata for one OneDrive item (type, size, last changed, web URL).",
+    description: "Get metadata for one OneDrive item (type, size, last changed).",
     inputSchema: { type: "object", properties: { path: { type: "string", description: "Item path from the drive root." }, ...accountProp }, required: ["path"] },
     run: (a) => runAgent(withAccount(["stat", a.path], a.account)),
   },
   {
     name: "onedrive_search",
-    description: "Search a OneDrive account for files and folders matching a query.",
+    description: "Search a OneDrive account for files and folders whose name or content matches a query (up to 200 hits).",
     inputSchema: { type: "object", properties: { query: { type: "string", description: "Text to search for." }, ...accountProp }, required: ["query"] },
     run: (a) => runAgent(withAccount(["search", a.query], a.account)),
   },
@@ -92,25 +91,25 @@ const tools = [
   },
   {
     name: "onedrive_upload",
-    description: "Upload a local file into a OneDrive folder. For a work/SES account this only succeeds inside your own personal OneDrive, never a SharePoint shared library, and work files are never carried into another account.",
+    description: "Upload a local file into a OneDrive folder. Refuses to overwrite an existing item, and files in a work account's folder are never carried into another account.",
     inputSchema: { type: "object", properties: { localFile: { type: "string", description: "Absolute path of the local file to upload." }, remoteParent: { type: "string", description: "Destination folder path from the drive root." }, ...accountProp }, required: ["localFile", "remoteParent"] },
     run: (a) => runAgent(withAccount(["upload", a.localFile, a.remoteParent], a.account)),
   },
   {
     name: "onedrive_mkdir",
-    description: "Create a folder in OneDrive. For a work/SES account this only succeeds inside your own personal OneDrive, not a SharePoint shared library.",
+    description: "Create a folder in OneDrive.",
     inputSchema: { type: "object", properties: { remoteParent: { type: "string", description: "Parent folder path from the drive root." }, name: { type: "string", description: "New folder name." }, ...accountProp }, required: ["remoteParent", "name"] },
     run: (a) => runAgent(withAccount(["mkdir", a.remoteParent, a.name], a.account)),
   },
   {
     name: "onedrive_rename",
-    description: "Rename a OneDrive item. For a work/SES account this only succeeds for items in your own personal OneDrive, not a SharePoint shared library.",
+    description: "Rename a OneDrive item; refuses when the new name already exists.",
     inputSchema: { type: "object", properties: { path: { type: "string", description: "Item path from the drive root." }, newName: { type: "string", description: "New name (no slashes)." }, ...accountProp }, required: ["path", "newName"] },
     run: (a) => runAgent(withAccount(["rename", a.path, a.newName], a.account)),
   },
   {
     name: "onedrive_trash",
-    description: "Move a OneDrive item to the recycle bin. For a work/SES account this only succeeds for items in your own personal OneDrive, not a SharePoint shared library.",
+    description: "Move a OneDrive item (file or folder) to the OneDrive recycle bin.",
     inputSchema: { type: "object", properties: { path: { type: "string", description: "Item path from the drive root." }, ...accountProp }, required: ["path"] },
     run: (a) => runAgent(withAccount(["trash", a.path], a.account)),
   },
@@ -122,7 +121,7 @@ const tools = [
       properties: {
         path: { type: "string", description: "Item path from the drive root." },
         edit: { type: "boolean", description: "If true the link allows editing, otherwise view only." },
-        scope: { type: "string", enum: ["anonymous", "organization"], description: "Link audience. Work accounts often only allow \"organization\"." },
+        scope: { type: "string", enum: ["anonymous", "organization"], description: "Link audience; defaults to organization for work accounts and anonymous otherwise." },
         ...accountProp,
       },
       required: ["path"],
@@ -136,13 +135,13 @@ const tools = [
   },
   {
     name: "onedrive_sync_status",
-    description: "Sync state of an item in a mounted OneDrive folder (omadrive mount): cloud (online only), local (on this device and up to date), pending (waiting to upload) or conflict, with size, modified time and eTag. Path is from the drive root or a path inside the mounted folder.",
+    description: "State of an item in a mounted OneDrive folder: online (not downloaded), local (on this device), pending (waiting to upload) or folder, with size and modified time. Path is from the drive root or inside the mounted folder.",
     inputSchema: { type: "object", properties: { path: { type: "string", description: "Item path." }, ...accountProp }, required: ["path"] },
     run: (a) => runAgent(withAccount(["status", a.path], a.account)),
   },
   {
     name: "onedrive_pending",
-    description: "List what each mounted OneDrive folder still has to upload and its conflicts, with the last sync time and error.",
+    description: "List the files each mounted OneDrive folder still has to upload.",
     inputSchema: { type: "object", properties: { ...accountProp } },
     run: (a) => runAgent(withAccount(["pending"], a.account)),
   },

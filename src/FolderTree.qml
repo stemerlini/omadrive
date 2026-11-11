@@ -10,7 +10,6 @@ Rectangle {
     id: tree
 
     required property var folder
-    property bool remote: false
     // The item highlighted in the list, highlighted here too.
     property string currentPath: ""
     signal opened(string path)
@@ -44,7 +43,7 @@ Rectangle {
             required property int index
             readonly property string path: tree.pathOf(index)
             readonly property bool thin: index < tree.segments.length
-            readonly property string name: index === 0 ? (tree.remote ? "OneDrive" : "/") : tree.segments[index - 1]
+            readonly property string name: index === 0 ? "/" : tree.segments[index - 1]
 
             width: thin ? 24 : 280
             height: ListView.view.height - 8

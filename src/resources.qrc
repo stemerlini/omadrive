@@ -11,11 +11,7 @@
         <file alias="icons/menu-tab.svg">icons/menu-tab.svg</file>
         <file alias="icons/menu-preview.svg">icons/menu-preview.svg</file>
         <file alias="icons/menu-download.svg">icons/menu-download.svg</file>
-        <file alias="icons/menu-freeup.svg">icons/menu-freeup.svg</file>
-        <file alias="icons/menu-share.svg">icons/menu-share.svg</file>
         <file alias="icons/menu-link.svg">icons/menu-link.svg</file>
-        <file alias="icons/menu-people.svg">icons/menu-people.svg</file>
-        <file alias="icons/menu-web.svg">icons/menu-web.svg</file>
         <file alias="icons/menu-copy.svg">icons/menu-copy.svg</file>
         <file alias="icons/menu-cut.svg">icons/menu-cut.svg</file>
         <file alias="icons/menu-paste.svg">icons/menu-paste.svg</file>
@@ -24,12 +20,9 @@
         <file alias="icons/menu-trash.svg">icons/menu-trash.svg</file>
         <file alias="icons/menu-transfer.svg">icons/menu-transfer.svg</file>
         <file alias="icons/menu-new.svg">icons/menu-new.svg</file>
-        <file alias="icons/menu-adduser.svg">icons/menu-adduser.svg</file>
-        <file alias="icons/menu-signout.svg">icons/menu-signout.svg</file>
-        <file alias="icons/menu-folder.svg">icons/menu-folder.svg</file>
         <file alias="icons/online.svg">icons/online.svg</file>
         <file alias="icons/local.svg">icons/local.svg</file>
-        <file alias="icons/changed.svg">icons/changed.svg</file>
+        <file alias="icons/pending.svg">icons/pending.svg</file>
         <file alias="icons/tab-cloud.svg">icons/tab-cloud.svg</file>
         <file alias="icons/tab-device.svg">icons/tab-device.svg</file>
         <file alias="icons/tree.svg">icons/tree.svg</file>
@@ -43,7 +36,5 @@
         <file alias="i18n/en.json">i18n/en.json</file>
         <file>AppMenu.qml</file>
         <file>AppMenuItem.qml</file>
-        <file>AccountBar.qml</file>
-        <file>Avatar.qml</file>
     </qresource>
 </RCC>

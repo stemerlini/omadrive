@@ -7,8 +7,8 @@ import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Like the OneDrive flyout on Windows: the newest files of every account,
-// one click to open them, and a way into omadrive.
+// A cloud on the bar: the OneDrive accounts rclone mounts, a switch to
+// mount each one, and a way to connect another.
 Panel {
   id: root
   moduleName: "smerlini.onedrive"
@@ -18,58 +18,47 @@ Panel {
   Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
   readonly property Item panelFlick: panel.loadedContent ? panel.loadedContent.panelFlick : null
-  readonly property Item fileColumn: panel.loadedContent ? panel.loadedContent.fileColumn : null
 
-  // The keyboard cursor runs over every file, then the "Open omadrive" row.
+  // The keyboard cursor runs over every account, then "Connect" and "Open omadrive".
   property int cursor: 0
   property bool cursorActive: false
-  readonly property int rowCount: drive.files.length + 1
+  readonly property int accountCount: drive.accounts.length
+  readonly property int connectIndex: accountCount
+  readonly property int openAppIndex: accountCount + 1
+  readonly property int rowCount: accountCount + 2
 
   readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string cloudGlyph: "󰏊"
+  readonly property string uploadGlyph: "󰅧"
+  readonly property string workGlyph: "󰃖"
 
-  readonly property var activeAccount: drive.accounts.filter(function (a) { return a.active })[0] || drive.accounts[0] || null
   readonly property string heroMeta: {
     if (!drive.installed) return strings.t("notInstalled")
-    if (!drive.loaded) return drive.busy ? strings.t("firstRun") : strings.t("checking")
+    if (!drive.loaded) return strings.t("checking")
     if (drive.accounts.length === 0) return strings.t("noAccounts")
-    if (drive.busy) return strings.t("checking")
-    return strings.t("upToDate").arg(drive.checkedAt.toLocaleTimeString(Qt.locale(Commons.I18n.formatLocale), Locale.ShortFormat))
+    if (drive.pending > 0) return strings.tn("pending", drive.pending).arg(Commons.I18n.formatNumber(drive.pending))
+    if (!drive.anyMounted) return strings.t("noneMounted")
+    return strings.t("upToDate")
   }
 
-  function when(date) {
-    if (!date) return ""
-    var locale = Qt.locale(Commons.I18n.formatLocale)
-    var time = date.toLocaleTimeString(locale, Locale.ShortFormat)
-    var today = new Date()
-    var start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-    if (date >= start) return strings.t("today").arg(time)
-    if (date >= new Date(start.getTime() - 86400000)) return strings.t("yesterday").arg(time)
-    return date.toLocaleDateString(locale, Locale.ShortFormat)
+  function accountAt(index) {
+    return index >= 0 && index < drive.accounts.length ? drive.accounts[index] : null
   }
 
-  function fileMeta(file) {
-    var parts = [when(file.changed)]
-    if (file.by) parts.push(file.by)
-    if (file.folder) parts.push(file.folder)
-    return parts.filter(function (p) { return p !== "" }).join(" · ")
+  function accountCaption(account) {
+    var parts = []
+    if (account.mounted && account.mountpoint) parts.push(account.mountpoint)
+    else parts.push(account.configured ? strings.t("notMounted") : strings.t("notSetUp"))
+    if (account.total > 0)
+      parts.push(strings.t("storage").arg(Model.bytes(account.used, Commons.I18n.formatNumber))
+                                     .arg(Model.bytes(account.total, Commons.I18n.formatNumber)))
+    if (account.pending > 0)
+      parts.push(strings.tn("pendingShort", account.pending).arg(Commons.I18n.formatNumber(account.pending)))
+    return parts.join(" · ")
   }
-
-  function glyphFor(name) {
-    var ext = name.indexOf(".") > 0 ? name.split(".").pop().toLowerCase() : ""
-    if (["jpg", "jpeg", "png", "gif", "webp", "heic", "svg", "bmp", "tif", "tiff"].indexOf(ext) >= 0) return "󰋩"
-    if (["mp4", "mov", "mkv", "webm", "avi", "m4v"].indexOf(ext) >= 0) return "󰕧"
-    if (ext === "pdf") return "󰈦"
-    if (["doc", "docx", "odt", "rtf"].indexOf(ext) >= 0) return "󰈬"
-    if (["xls", "xlsx", "ods", "csv"].indexOf(ext) >= 0) return "󰈛"
-    if (["ppt", "pptx", "odp"].indexOf(ext) >= 0) return "󰈧"
-    if (["zip", "7z", "tar", "gz", "rar"].indexOf(ext) >= 0) return "󰗄"
-    return "󰈙"
-  }
-
 
   function moveCursor(dy) {
     if (!cursorActive) { cursorActive = true; return }
@@ -77,10 +66,27 @@ Panel {
     scrollCursorIntoView()
   }
 
-  function activate() {
-    if (cursor < drive.files.length) drive.open(drive.files[cursor])
-    else drive.openApp()
+  function connectAccount() {
+    drive.connect()
     root.close()
+  }
+
+  function openApp() {
+    drive.openApp()
+    root.close()
+  }
+
+  function openAccount(account) {
+    if (!account) return
+    var opening = account.mounted && account.mountpoint !== ""
+    drive.openAccount(account)
+    if (opening) root.close()
+  }
+
+  function activate() {
+    if (cursor === connectIndex) { if (drive.installed) connectAccount() }
+    else if (cursor === openAppIndex) { if (drive.installed) openApp() }
+    else openAccount(accountAt(cursor))
   }
 
   function scrollCursorIntoView() {
@@ -101,9 +107,12 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  onRowCountChanged: if (cursor > rowCount - 1) cursor = rowCount - 1
+
   onOpenedChanged: if (opened) {
     cursorActive = false
     cursor = 0
+    drive.actionError = ""
     if (panelFlick) panelFlick.contentY = 0
     drive.refresh()
     Qt.callLater(function () { if (panel.loadedContent) panel.loadedContent.forceActiveFocus() })
@@ -126,8 +135,8 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.cloudGlyph
-    opacity: drive.loaded && drive.lastError === "" ? 1.0 : 0.6
+    text: drive.pending > 0 ? root.uploadGlyph : root.cloudGlyph
+    opacity: drive.loaded && drive.lastError === "" && drive.anyMounted ? 1.0 : 0.6
     onPressed: function (buttonCode) {
       if (buttonCode === Qt.RightButton) drive.refresh()
       else if (buttonCode === Qt.MiddleButton) drive.openApp()
@@ -148,23 +157,13 @@ Panel {
     content: PanelKeyCatcher {
       id: keys
       property alias panelFlick: panelFlick
-      property alias fileColumn: fileColumn
       implicitHeight: column.implicitHeight
       anchors.fill: parent
 
-      // Rows carry their cursor index; the last is "Open omadrive".
       function rowAt(index) {
-        if (index >= drive.files.length) return openAppRow
-        var found = null
-        function walk(item) {
-          for (var i = 0; i < item.children.length && !found; i++) {
-            var child = item.children[i]
-            if (child.rowIndex === index && child.isFileRow) found = child
-            else walk(child)
-          }
-        }
-        walk(fileColumn)
-        return found
+        if (index === root.connectIndex) return connectRow
+        if (index === root.openAppIndex) return openAppRow
+        return accountRepeater.itemAt(index)
       }
 
       onMoveRequested: function (dx, dy) { root.moveCursor(dy) }
@@ -172,8 +171,14 @@ Panel {
       onCloseRequested: root.close()
       onTabRequested: function (direction) { root.switchPanel(direction) }
       onTextKey: function (t) {
-        if (t === "r" || t === "R") drive.refresh()
-        else if (t === "o" || t === "O") { drive.openApp(); root.close() }
+        var k = t.toLowerCase()
+        if (k === "r") drive.refresh()
+        else if (k === "o") root.openApp()
+        else if (k === "c") root.connectAccount()
+        else if (k === "m") {
+          let account = root.cursorActive ? root.accountAt(root.cursor) : (drive.accounts.length === 1 ? drive.accounts[0] : null)
+          drive.toggleMount(account)
+        }
       }
 
       Flickable {
@@ -195,14 +200,14 @@ Panel {
           PanelHero {
             id: hero
             width: parent.width
-            title: root.activeAccount ? root.activeAccount.driveName : strings.t("title")
+            title: strings.t("title")
             meta: root.heroMeta
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
-                text: root.cloudGlyph
+                text: drive.pending > 0 ? root.uploadGlyph : root.cloudGlyph
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
@@ -229,110 +234,74 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
-          Column {
-            id: fileColumn
+          PlainLabel {
+            visible: drive.actionError !== ""
             width: parent.width
-            spacing: Style.space(14)
+            text: strings.t("actionFailed").arg(drive.actionError)
+            color: root.urgent
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
+          }
+
+          PanelSectionHeader {
+            visible: drive.accounts.length > 0
+            width: parent.width
+            text: strings.t("accounts")
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+
+          Column {
+            id: accountColumn
+            visible: drive.accounts.length > 0
+            width: parent.width
+            spacing: Style.space(4)
 
             Repeater {
+              id: accountRepeater
               model: drive.accounts
-              Column {
-                id: section
+              AccountRow {
                 required property var modelData
                 required property int index
-                // Where this account's files start in the cursor order.
-                readonly property int offset: {
-                  var n = 0
-                  for (var i = 0; i < index; i++) n += drive.accounts[i].files.length
-                  return n
-                }
-                width: fileColumn.width
-                spacing: Style.space(6)
-
-                RowLayout {
-                  width: parent.width
-                  spacing: Style.space(8)
-                  PanelSectionHeader {
-                    Layout.fillWidth: true
-                    text: section.modelData.driveName
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                  }
-                  PlainLabel {
-                    visible: section.modelData.total > 0
-                    text: strings.t("storage").arg(Model.bytes(section.modelData.used, Commons.I18n.formatNumber))
-                                                .arg(Model.bytes(section.modelData.total, Commons.I18n.formatNumber))
-                    color: root.dim
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-
-                PlainLabel {
-                  visible: section.modelData.error !== ""
-                  width: parent.width
-                  text: strings.t("readFailed").arg(section.modelData.error)
-                  color: root.urgent
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
-                }
-
-                PlainLabel {
-                  visible: section.modelData.files.length === 0 && section.modelData.error === ""
-                  width: parent.width
-                  text: strings.t("noFiles")
-                  color: root.dim
-                  font.pixelSize: Style.font.bodySmall
-                  horizontalAlignment: Text.AlignHCenter
-                }
-
-                Repeater {
-                  model: section.modelData.files
-                  FileRow {
-                    required property var modelData
-                    required property int index
-                    width: section.width
-                    file: modelData
-                    rowIndex: section.offset + index
-                  }
-                }
+                width: accountColumn.width
+                account: modelData
+                rowIndex: index
               }
             }
           }
 
+          PlainLabel {
+            visible: drive.installed && drive.loaded && drive.accounts.length === 0
+            width: parent.width
+            text: strings.t("noAccountsHelp")
+            color: root.dim
+            font.pixelSize: Style.font.bodySmall
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+          }
+
           PanelSeparator { foreground: root.foreground }
 
-          CursorSurface {
+          ActionRow {
+            id: connectRow
+            width: parent.width
+            rowIndex: root.connectIndex
+            glyph: "󰐕"
+            title: strings.t("connect")
+            caption: strings.t("connectHelp")
+            enabled: drive.installed
+            onTriggered: root.connectAccount()
+          }
+
+          ActionRow {
             id: openAppRow
             width: parent.width
-            hasCursor: root.cursorActive && root.cursor === root.rowCount - 1
-            foreground: root.foreground
-            implicitHeight: appRow.implicitHeight + Style.spacing.rowPaddingX
-
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onEntered: { root.cursorActive = true; root.cursor = root.rowCount - 1 }
-              onClicked: { drive.openApp(); root.close() }
-            }
-
-            RowLayout {
-              id: appRow
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.leftMargin: Style.space(10)
-              anchors.rightMargin: Style.space(10)
-              spacing: Style.space(8)
-
-              PlainLabel { text: "󰉋"; font.pixelSize: Style.font.icon }
-              ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Style.space(1)
-                PlainLabel { Layout.fillWidth: true; text: strings.t("openApp"); font.pixelSize: Style.font.body; elide: Text.ElideRight }
-                PlainLabel { Layout.fillWidth: true; text: strings.t("openAppHelp"); color: root.dim; font.pixelSize: Style.font.caption; elide: Text.ElideRight }
-              }
-            }
+            rowIndex: root.openAppIndex
+            glyph: "󰉋"
+            title: strings.t("openApp")
+            caption: strings.t("openAppHelp")
+            enabled: drive.installed
+            onTriggered: root.openApp()
           }
         }
       }
@@ -345,22 +314,25 @@ Panel {
     font.family: root.fontFamily
   }
 
-  component FileRow: CursorSurface {
-    id: row
-    property var file: null
+  component ActionRow: CursorSurface {
+    id: action
     property int rowIndex: 0
-    readonly property bool isFileRow: true
+    property string glyph: ""
+    property string title: ""
+    property string caption: ""
+    signal triggered()
 
     hasCursor: root.cursorActive && root.cursor === rowIndex
     foreground: root.foreground
-    implicitHeight: content.implicitHeight + Style.spacing.rowPaddingX
+    opacity: enabled ? 1.0 : 0.5
+    implicitHeight: actionContent.implicitHeight + Style.spacing.rowPaddingX
 
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: { root.cursorActive = true; root.cursor = row.rowIndex }
-      onClicked: { drive.open(row.file); root.close() }
+      onEntered: { root.cursorActive = true; root.cursor = action.rowIndex }
+      onClicked: action.triggered()
     }
 
     RowLayout {
@@ -371,8 +343,46 @@ Panel {
       anchors.rightMargin: Style.space(10)
       spacing: Style.space(8)
 
+      PlainLabel { text: action.glyph; font.pixelSize: Style.font.icon; Layout.alignment: Qt.AlignVCenter }
+      ColumnLayout {
+        id: actionContent
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        PlainLabel { Layout.fillWidth: true; text: action.title; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+        PlainLabel { Layout.fillWidth: true; text: action.caption; color: root.dim; font.pixelSize: Style.font.caption; elide: Text.ElideRight }
+      }
+    }
+  }
+
+  component AccountRow: CursorSurface {
+    id: row
+    property var account: null
+    property int rowIndex: 0
+    readonly property bool working: drive.acting && account !== null && drive.actionRemote === account.remote
+
+    hasCursor: root.cursorActive && root.cursor === rowIndex
+    foreground: root.foreground
+    implicitHeight: content.implicitHeight + Style.spacing.rowPaddingX
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: { root.cursorActive = true; root.cursor = row.rowIndex }
+      onClicked: root.openAccount(row.account)
+    }
+
+    RowLayout {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(8)
+
       PlainLabel {
-        text: row.file ? root.glyphFor(row.file.name) : ""
+        text: row.account && row.account.work ? root.workGlyph : root.cloudGlyph
+        opacity: row.account && row.account.mounted ? 1.0 : 0.6
         font.pixelSize: Style.font.icon
         Layout.alignment: Qt.AlignVCenter
       }
@@ -381,19 +391,35 @@ Panel {
         id: content
         Layout.fillWidth: true
         spacing: Style.space(1)
-        PlainLabel { Layout.fillWidth: true; text: row.file ? row.file.name : ""; font.pixelSize: Style.font.body; elide: Text.ElideMiddle }
-        PlainLabel { Layout.fillWidth: true; text: row.file ? root.fileMeta(row.file) : ""; color: root.dim; font.pixelSize: Style.font.caption; elide: Text.ElideRight }
+        PlainLabel { Layout.fillWidth: true; text: row.account ? row.account.label : ""; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+        PlainLabel {
+          Layout.fillWidth: true
+          text: row.working ? (row.account.mounted ? strings.t("unmounting") : strings.t("mounting"))
+                            : (row.account ? root.accountCaption(row.account) : "")
+          color: root.dim
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideMiddle
+        }
+        PlainLabel {
+          visible: row.account !== null && row.account.error !== ""
+          Layout.fillWidth: true
+          text: row.account ? row.account.error : ""
+          color: root.urgent
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+          maximumLineCount: 3
+          elide: Text.ElideRight
+        }
       }
 
-      // Like OneDrive's status column: a tick when this device has the file, a cloud when it is online only.
-      PlainLabel {
-        text: row.file && row.file.isLocal ? "󰄬" : "󰅟"
-        color: root.dim
-        font.pixelSize: Style.font.bodySmall
+      PanelActionButton {
         Layout.alignment: Qt.AlignVCenter
-        ToolTip.visible: statusHover.containsMouse
-        ToolTip.text: row.file && row.file.isLocal ? strings.t("onDevice") : strings.t("onlineOnly")
-        MouseArea { id: statusHover; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
+        iconText: row.account && row.account.mounted ? "󰅙" : "󰐊"
+        tooltipText: row.account && row.account.mounted ? strings.t("unmount") : strings.t("mount")
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        enabled: !drive.acting && row.account !== null
+        onClicked: drive.toggleMount(row.account)
       }
     }
   }
