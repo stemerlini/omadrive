@@ -18,7 +18,7 @@
   "unmount": "Unmount",
   "connect": "Connect an account…",
   "connectHelp": "Sign in to OneDrive in a terminal",
-  "openApp": "Open omadrive",
+  "openApp": "Open pathfinder",
   "openAppHelp": "Browse, share and download your files",
   "refresh": "Check now",
   "readFailed": "Could not read accounts: %1",

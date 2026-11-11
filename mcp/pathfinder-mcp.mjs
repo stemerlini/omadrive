@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// omadrive MCP server — exposes OneDrive accounts (rclone remotes, personal and
+// pathfinder MCP server — exposes OneDrive accounts (rclone remotes, personal and
 // work) to agents over the Model Context Protocol. Every tool shells out to
-// `omadrive agent <cmd>` with an argument array (no shell), so the same account
+// `pathfinder agent <cmd>` with an argument array (no shell), so the same account
 // safety the CLI enforces applies here too: operations name their account and
 // work files never leave their account.
 //
@@ -10,7 +10,7 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const OMADRIVE = process.env.OMADRIVE_BIN || "omadrive";
+const PATHFINDER = process.env.PATHFINDER_BIN || "pathfinder";
 const PROTOCOL_VERSION = "2024-11-05";
 
 let pkgVersion = "0.1.0";
@@ -20,11 +20,11 @@ try {
   /* ignore */
 }
 
-// Runs `omadrive agent <args...>` and resolves with the parsed JSON object the
+// Runs `pathfinder agent <args...>` and resolves with the parsed JSON object the
 // CLI prints. A non-zero exit still carries a JSON {ok:false,error} line.
 function runAgent(args) {
   return new Promise((resolve) => {
-    execFile(OMADRIVE, ["agent", ...args], { maxBuffer: 8 * 1024 * 1024, timeout: 600000 }, (err, stdout, stderr) => {
+    execFile(PATHFINDER, ["agent", ...args], { maxBuffer: 8 * 1024 * 1024, timeout: 600000 }, (err, stdout, stderr) => {
       const text = (stdout || "").trim();
       if (text) {
         try {
@@ -35,10 +35,10 @@ function runAgent(args) {
         }
       }
       if (err && err.code === "ENOENT") {
-        resolve({ ok: false, error: "omadrive is not installed on PATH (set OMADRIVE_BIN to the binary)" });
+        resolve({ ok: false, error: "pathfinder is not installed on PATH (set PATHFINDER_BIN to the binary)" });
         return;
       }
-      resolve({ ok: false, error: (stderr || "").trim() || (err && err.message) || "omadrive produced no output" });
+      resolve({ ok: false, error: (stderr || "").trim() || (err && err.message) || "pathfinder produced no output" });
     });
   });
 }
@@ -172,7 +172,7 @@ async function handle(msg) {
       reply(id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "omadrive", version: pkgVersion },
+        serverInfo: { name: "pathfinder", version: pkgVersion },
       });
       return;
     case "ping":
@@ -226,7 +226,7 @@ process.stdin.on("data", (chunk) => {
     }
     pending++;
     handle(msg)
-      .catch((e) => process.stderr.write(`omadrive-mcp: ${e}\n`))
+      .catch((e) => process.stderr.write(`pathfinder-mcp: ${e}\n`))
       .finally(() => {
         pending--;
         maybeExit();

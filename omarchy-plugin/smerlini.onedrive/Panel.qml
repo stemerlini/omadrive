@@ -19,7 +19,7 @@ Panel {
 
   readonly property Item panelFlick: panel.loadedContent ? panel.loadedContent.panelFlick : null
 
-  // The keyboard cursor runs over every account, then "Connect" and "Open omadrive".
+  // The keyboard cursor runs over every account, then "Connect" and "Open pathfinder".
   property int cursor: 0
   property bool cursorActive: false
   readonly property int accountCount: drive.accounts.length

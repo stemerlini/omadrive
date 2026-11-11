@@ -88,18 +88,18 @@ QString Run::error() const {
 }
 
 QString configDir() {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omadrive/cloud";
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/pathfinder/cloud";
 }
 
 QString unitName(const QString &remote) {
-    return QString("omadrive-rclone@%1.service").arg(remote);
+    return QString("pathfinder-rclone@%1.service").arg(remote);
 }
 
 QString socketPath(const QString &remote) {
     QString runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
     if (runtime.isEmpty())
         runtime = QString("/run/user/%1").arg(getuid());
-    return runtime + "/omadrive-rclone-" + remote + ".sock";
+    return runtime + "/pathfinder-rclone-" + remote + ".sock";
 }
 
 bool validRemote(const QString &remote) {
@@ -401,6 +401,6 @@ int runCloud(const QStringList &args) {
         print(err.isEmpty() ? QJsonObject{{"ok", true}} : QJsonObject{{"ok", false}, {"error", err}});
         return err.isEmpty() ? 0 : 1;
     }
-    std::fputs("usage: omadrive cloud status | connect | mount <account> [folder] | unmount <account>\n", stderr);
+    std::fputs("usage: pathfinder cloud status | connect | mount <account> [folder] | unmount <account>\n", stderr);
     return 2;
 }

@@ -1,8 +1,8 @@
 {
-  "name": "omadrive-mcp",
+  "name": "pathfinder-mcp",
   "version": "0.1.0",
-  "description": "MCP server exposing omadrive OneDrive operations to agents",
+  "description": "MCP server exposing pathfinder OneDrive operations to agents",
   "type": "module",
-  "bin": { "omadrive-mcp": "./omadrive-mcp.mjs" },
+  "bin": { "pathfinder-mcp": "./pathfinder-mcp.mjs" },
   "private": true
 }

@@ -21,10 +21,10 @@ public:
     Q_INVOKABLE QString homePath() const;
     Q_INVOKABLE bool isDir(const QString &path) const;
     Q_INVOKABLE void openExternally(const QString &path);
-    // Starts another Omadrive window with fresh tabs.
+    // Starts another Pathfinder window with fresh tabs.
     Q_INVOKABLE void newWindow();
     Q_INVOKABLE void copyText(const QString &text);
-    // Asks `omadrive agent share` for a OneDrive link to a file in an rclone
+    // Asks `pathfinder agent share` for a OneDrive link to a file in an rclone
     // mount and copies it; shared() reports how it went.
     Q_INVOKABLE void share(const QString &path, bool edit);
 

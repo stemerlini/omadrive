@@ -137,7 +137,7 @@ def banner_svg(width=1280, height=400):
     parts.append('<g stroke="#ff2a6d" stroke-opacity="0.55" stroke-width="2">' + ''.join(grid) + '</g>')
 
     # Icon, title and tagline, centred as a group.
-    title, tag = 'OMADRIVE', 'FILE MANAGER FOR OMARCHY  -  LOCAL + ONEDRIVE'
+    title, tag = 'PATHFINDER', 'FILE MANAGER FOR OMARCHY  -  LOCAL + ONEDRIVE'
     ts, gs, isz = 14, 3, 7
     icon_w = 20 * isz
     block = icon_w + 48 + text_width(title, ts)
@@ -157,7 +157,7 @@ def banner_svg(width=1280, height=400):
 
 
 if __name__ == '__main__':
-    (ROOT / 'pkgbuild/omadrive.svg').write_text(icon_svg())
+    (ROOT / 'pkgbuild/pathfinder.svg').write_text(icon_svg())
     (HERE / 'banner.svg').write_text(banner_svg())
     subprocess.run(['rsvg-convert', '-o', str(HERE / 'banner.png'), str(HERE / 'banner.svg')], check=True)
-    subprocess.run(['rsvg-convert', '-w', '256', '-h', '256', '-o', str(HERE / 'icon.png'), str(ROOT / 'pkgbuild/omadrive.svg')], check=True)
+    subprocess.run(['rsvg-convert', '-w', '256', '-h', '256', '-o', str(HERE / 'icon.png'), str(ROOT / 'pkgbuild/pathfinder.svg')], check=True)

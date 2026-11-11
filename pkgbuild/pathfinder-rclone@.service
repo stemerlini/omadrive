@@ -1,19 +1,19 @@
 [Unit]
 Description=OneDrive (%i) via rclone mount
-Documentation=https://github.com/stemerlini/omadrive
+Documentation=https://github.com/stemerlini/pathfinder
 
 [Service]
 Type=notify
-EnvironmentFile=%h/.config/omadrive/cloud/%i.env
+EnvironmentFile=%h/.config/pathfinder/cloud/%i.env
 ExecStartPre=/usr/bin/mkdir -p ${MOUNTPOINT}
-ExecStartPre=/usr/bin/rm -f %t/omadrive-rclone-%i.sock
+ExecStartPre=/usr/bin/rm -f %t/pathfinder-rclone-%i.sock
 ExecStart=/usr/bin/rclone mount ${REMOTE} ${MOUNTPOINT} \
   --vfs-cache-mode full \
   --vfs-cache-max-age 8760h \
   --vfs-cache-max-size 50G \
   --dir-cache-time 1h \
   --poll-interval 1m \
-  --rc --rc-addr unix://%t/omadrive-rclone-%i.sock --rc-no-auth \
+  --rc --rc-addr unix://%t/pathfinder-rclone-%i.sock --rc-no-auth \
   --log-level INFO
 ExecStop=/usr/bin/fusermount3 -uz ${MOUNTPOINT}
 Restart=on-failure

@@ -11,7 +11,7 @@
 #include "theme.h"
 #include "translator.h"
 
-class OmadriveTests : public QObject {
+class PathfinderTests : public QObject {
     Q_OBJECT
 
 private slots:
@@ -26,7 +26,7 @@ private slots:
         QCOMPARE(backend.copyItems({dir.path() + "/a/report.txt"}, dir.path() + "/b"), QString());
         QCOMPARE(read(dir.path() + "/b/report.txt"), QByteArray("original"));
         QCOMPARE(read(dir.path() + "/b/report (2).txt"), QByteArray("new"));
-        QVERIFY(QDir(dir.path() + "/b").entryList({"*.omadrive-part"}).isEmpty());
+        QVERIFY(QDir(dir.path() + "/b").entryList({"*.pathfinder-part"}).isEmpty());
     }
 
     void uniqueNameKeepsFullSuffix()
@@ -208,5 +208,5 @@ private:
     }
 };
 
-QTEST_MAIN(OmadriveTests)
-#include "omadrive_tests.moc"
+QTEST_MAIN(PathfinderTests)
+#include "pathfinder_tests.moc"

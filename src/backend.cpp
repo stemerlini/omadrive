@@ -65,7 +65,7 @@ QString Backend::copyOne(const QString &source, const QString &destination) {
 
     // Copy beside the target and rename, so a failed copy never leaves a
     // half-written file under the final name.
-    const QString partial = target + ".omadrive-part";
+    const QString partial = target + ".pathfinder-part";
     QFile::remove(partial);
     if (!QFile::copy(source, partial)) {
         QFile::remove(partial);

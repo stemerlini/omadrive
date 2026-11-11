@@ -179,8 +179,8 @@ Rectangle {
 
     function handleDrop(drop, destPath) {
         var paths = []
-        if (drop.formats.indexOf("application/x-omadrive-items") >= 0) {
-            paths = JSON.parse(drop.getDataAsString("application/x-omadrive-items")).paths
+        if (drop.formats.indexOf("application/x-pathfinder-items") >= 0) {
+            paths = JSON.parse(drop.getDataAsString("application/x-pathfinder-items")).paths
         } else if (drop.hasUrls) {
             for (var i = 0; i < drop.urls.length; i++) {
                 var url = drop.urls[i].toString()
@@ -446,7 +446,7 @@ Rectangle {
                 Drag.proposedAction: Qt.CopyAction
                 Drag.mimeData: {
                     return {
-                        "application/x-omadrive-items": JSON.stringify({ paths: dragPaths }),
+                        "application/x-pathfinder-items": JSON.stringify({ paths: dragPaths }),
                         "text/uri-list": dragPaths.map(function (p) { return "file://" + encodeURI(p) }).join("\r\n")
                     }
                 }

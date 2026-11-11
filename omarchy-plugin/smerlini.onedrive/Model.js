@@ -1,4 +1,4 @@
-// Validates what `omadrive cloud status` printed before the panel shows any of it.
+// Validates what `pathfinder cloud status` printed before the panel shows any of it.
 
 var MAX_ACCOUNTS = 8
 var MAX_TEXT = 300
@@ -16,7 +16,7 @@ function number(value) {
   return isFinite(n) && n >= 0 ? Math.floor(n) : 0
 }
 
-// rclone remote names are the identifier passed back to `omadrive cloud`.
+// rclone remote names are the identifier passed back to `pathfinder cloud`.
 function remote(value) {
   var s = typeof value === "string" ? value : ""
   return s.length > 0 && s.length <= 64 && /^[A-Za-z0-9_.-]+$/.test(s) && s.charAt(0) !== "-" ? s : ""
@@ -69,7 +69,7 @@ function parse(raw) {
   return { ok: true, error: "", accounts: accounts }
 }
 
-// Reply to `omadrive cloud mount|unmount`.
+// Reply to `pathfinder cloud mount|unmount`.
 function parseResult(raw) {
   try {
     var data = JSON.parse(String(raw || ""))

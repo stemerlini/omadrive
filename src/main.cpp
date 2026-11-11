@@ -1,4 +1,4 @@
-// omadrive — a two-pane file manager; folders in rclone OneDrive mounts show
+// pathfinder — a two-pane file manager; folders in rclone OneDrive mounts show
 // their cloud state.
 
 #include <QDir>
@@ -22,7 +22,7 @@
 int main(int argc, char *argv[]) {
     if (argc >= 2 && QByteArray(argv[1]) == "cloud") {
         QCoreApplication app(argc, argv);
-        app.setApplicationName("omadrive");
+        app.setApplicationName("pathfinder");
         QStringList args;
         for (int i = 2; i < argc; ++i)
             args << QString::fromLocal8Bit(argv[i]);
@@ -30,20 +30,20 @@ int main(int argc, char *argv[]) {
     }
     if (argc >= 2 && QByteArray(argv[1]) == "agent") {
         QCoreApplication app(argc, argv);
-        app.setApplicationName("omadrive");
+        app.setApplicationName("pathfinder");
         QStringList args;
         for (int i = 2; i < argc; ++i)
             args << QString::fromLocal8Bit(argv[i]);
         return runAgent(args);
     }
     QGuiApplication app(argc, argv);
-    app.setApplicationName("omadrive");
+    app.setApplicationName("pathfinder");
     app.setApplicationVersion("0.1.0");
 
-    // Matches the window to omadrive.desktop, so the compositor (Wayland
+    // Matches the window to pathfinder.desktop, so the compositor (Wayland
     // app_id) and the launcher pick up the installed icon.
-    app.setDesktopFileName("omadrive");
-    app.setWindowIcon(QIcon::fromTheme("omadrive"));
+    app.setDesktopFileName("pathfinder");
+    app.setWindowIcon(QIcon::fromTheme("pathfinder"));
 
     QQuickStyle::setStyle("Material");
 
@@ -55,10 +55,10 @@ int main(int argc, char *argv[]) {
     Theme theme;
     Backend backend;
     // Tabs create their own lists from QML.
-    qmlRegisterType<FolderList>("Omadrive", 1, 0, "FolderList");
+    qmlRegisterType<FolderList>("Pathfinder", 1, 0, "FolderList");
     Preview preview;
 
-    // `omadrive <folder>` opens that folder in a new tab.
+    // `pathfinder <folder>` opens that folder in a new tab.
     QString startFolder;
     for (const QString &arg : app.arguments().mid(1)) {
         if (!arg.startsWith('-') && QFileInfo(arg).isDir()) {

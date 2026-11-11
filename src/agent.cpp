@@ -57,7 +57,7 @@ Account accountFor(const QString &path, const QString &wanted, QString *error) {
     }
     const Account a = Cloud::find(wanted);
     if (a.remote.isEmpty())
-        *error = wanted.isEmpty() ? QStringLiteral("No OneDrive account is connected; run omadrive cloud connect")
+        *error = wanted.isEmpty() ? QStringLiteral("No OneDrive account is connected; run pathfinder cloud connect")
                                   : QString("No account matches '%1'").arg(wanted);
     return a;
 }
@@ -294,7 +294,7 @@ int cmdDownload(const QString &path, const QString &destArg, const QString &want
     const QString p = Cloud::drivePath(a, path);
     if (p == "/")
         return fail("Cannot download the drive root; give a file path");
-    QString dest = destArg.trimmed().isEmpty() ? QDir::tempPath() + "/omadrive-agent" : destArg.trimmed();
+    QString dest = destArg.trimmed().isEmpty() ? QDir::tempPath() + "/pathfinder-agent" : destArg.trimmed();
     dest = QDir::cleanPath(QDir(dest).absolutePath());
     if (leaksInto(a, dest))
         return fail(kWorkLeak);
@@ -454,7 +454,7 @@ int cmdShare(const QString &path, bool edit, const QString &scope, const QString
 
 int cmdStatus(const QString &path, const QString &wanted) {
     if (path.isEmpty())
-        return fail("Usage: omadrive agent status <path> [--account <name>]");
+        return fail("Usage: pathfinder agent status <path> [--account <name>]");
     QString error;
     const Account a = accountFor(path, wanted, &error);
     if (a.remote.isEmpty())
@@ -543,7 +543,7 @@ QString pos(const Args &a, int i) { return a.positional.value(i); }
 
 int runAgent(const QStringList &rawArgs) {
     if (rawArgs.isEmpty())
-        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share|status|pending|refresh> ...");
+        return fail("Usage: pathfinder agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share|status|pending|refresh> ...");
     const QString command = rawArgs.first();
     const Args a = parse(rawArgs.mid(1));
 

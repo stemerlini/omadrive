@@ -5,7 +5,7 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mkdir -p "$ROOT/build"
 cd "$ROOT/build"
 
-qmake6 "$ROOT/omadrive.pro"
+qmake6 "$ROOT/pathfinder.pro"
 make -j"$(nproc)"
 
-echo "Built $ROOT/build/omadrive"
+echo "Built $ROOT/build/pathfinder"

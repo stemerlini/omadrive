@@ -1,7 +1,7 @@
 QT += core gui qml quick quickcontrols2 network concurrent
 
 CONFIG += c++17 release
-TARGET = omadrive
+TARGET = pathfinder
 TEMPLATE = app
 
 HEADERS += src/agent.h \

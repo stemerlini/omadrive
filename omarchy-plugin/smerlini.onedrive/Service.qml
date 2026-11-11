@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "Model.js" as Model
 
-// Asks `omadrive cloud` about the OneDrive accounts rclone mounts. Every
+// Asks `pathfinder cloud` about the OneDrive accounts rclone mounts. Every
 // command is an argument array; nothing is ever passed through a shell.
 Item {
   id: root
@@ -48,7 +48,7 @@ Item {
 
   function refresh() {
     if (status.running) { _again = true; return }
-    status.command = ["omadrive", "cloud", "status"]
+    status.command = ["pathfinder", "cloud", "status"]
     status.running = true
   }
 
@@ -56,7 +56,7 @@ Item {
     if (!account || !Model.remote(account.remote) || action.running) return
     actionError = ""
     actionRemote = account.remote
-    action.command = ["omadrive", "cloud", mount ? "mount" : "unmount", account.remote]
+    action.command = ["pathfinder", "cloud", mount ? "mount" : "unmount", account.remote]
     action.running = true
   }
 
@@ -66,16 +66,16 @@ Item {
 
   function openAccount(account) {
     if (!account) return
-    if (account.mounted && account.mountpoint) Quickshell.execDetached(["uwsm-app", "--", "omadrive", account.mountpoint])
+    if (account.mounted && account.mountpoint) Quickshell.execDetached(["uwsm-app", "--", "pathfinder", account.mountpoint])
     else setMounted(account, true)
   }
 
   function openApp() {
-    Quickshell.execDetached(["uwsm-app", "--", "omadrive"])
+    Quickshell.execDetached(["uwsm-app", "--", "pathfinder"])
   }
 
   function connect() {
-    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", "omadrive", "cloud", "connect"])
+    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", "pathfinder", "cloud", "connect"])
   }
 
   Timer {
@@ -106,7 +106,7 @@ Item {
           root.loaded = true
           root.checkedAt = new Date()
         } else {
-          root.lastError = parsed.error || Model.text(errText.trim()) || "omadrive exited with " + exitCode
+          root.lastError = parsed.error || Model.text(errText.trim()) || "pathfinder exited with " + exitCode
         }
       }
       if (root._again) { root._again = false; Qt.callLater(root.refresh) }
@@ -126,7 +126,7 @@ Item {
       } else {
         var result = Model.parseResult(actionOut.text)
         if (!result.ok || exitCode !== 0)
-          root.actionError = result.error || Model.text(errText.trim()) || "omadrive exited with " + exitCode
+          root.actionError = result.error || Model.text(errText.trim()) || "pathfinder exited with " + exitCode
       }
       root.actionRemote = ""
       root.refresh()

@@ -5,7 +5,7 @@
   "version": "2.0.0",
   "author": "Stefano Merlini",
   "license": "MIT",
-  "description": "A cloud on the Omarchy bar for the OneDrive accounts rclone mounts through omadrive: connect, mount and open them.",
+  "description": "A cloud on the Omarchy bar for the OneDrive accounts rclone mounts through pathfinder: connect, mount and open them.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Cloud",
-    "description": "Connect OneDrive accounts, mount or unmount them with rclone, and see files waiting to upload. Checks through omadrive when the panel opens and, if enabled, every few minutes.",
+    "description": "Connect OneDrive accounts, mount or unmount them with rclone, and see files waiting to upload. Checks through pathfinder when the panel opens and, if enabled, every few minutes.",
     "category": "Files",
     "allowMultiple": false,
     "defaultSection": "right",

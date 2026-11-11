@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import QtCore
-import Omadrive
+import Pathfinder
 
 ApplicationWindow {
     id: win
@@ -12,7 +12,7 @@ ApplicationWindow {
     minimumWidth: 720
     minimumHeight: 460
     visible: true
-    title: "Omadrive"
+    title: "Pathfinder"
     color: "#0e0e10"
 
     Material.theme: Material.Dark
@@ -210,7 +210,7 @@ ApplicationWindow {
         })
         if (list.length === 0 && !startFolder)
             list.push(makeTab("", ""))
-        // `omadrive <folder>`: that folder's tab, added unless already open.
+        // `pathfinder <folder>`: that folder's tab, added unless already open.
         var start = -1
         if (startFolder) {
             start = list.findIndex(function (t) { return t.folder.path === startFolder })
@@ -307,8 +307,8 @@ ApplicationWindow {
     // Dropping onto a tab drops into the folder that tab shows.
     function dropOnTab(drop, tab) {
         var paths = []
-        if (drop.formats.indexOf("application/x-omadrive-items") >= 0) {
-            paths = JSON.parse(drop.getDataAsString("application/x-omadrive-items")).paths
+        if (drop.formats.indexOf("application/x-pathfinder-items") >= 0) {
+            paths = JSON.parse(drop.getDataAsString("application/x-pathfinder-items")).paths
         } else if (drop.hasUrls) {
             for (var i = 0; i < drop.urls.length; i++) {
                 var url = drop.urls[i].toString()

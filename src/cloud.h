@@ -7,9 +7,9 @@
 #include <QVector>
 
 // OneDrive accounts are rclone remotes (type onedrive). Each can be mounted
-// by the systemd user unit omadrive-rclone@<remote>.service, which reads
-// ~/.config/omadrive/cloud/<remote>.env (REMOTE=, MOUNTPOINT=) and serves
-// rclone's remote control on $XDG_RUNTIME_DIR/omadrive-rclone-<remote>.sock.
+// by the systemd user unit pathfinder-rclone@<remote>.service, which reads
+// ~/.config/pathfinder/cloud/<remote>.env (REMOTE=, MOUNTPOINT=) and serves
+// rclone's remote control on $XDG_RUNTIME_DIR/pathfinder-rclone-<remote>.sock.
 namespace Cloud {
 
 struct Account {
@@ -59,5 +59,5 @@ QString unmount(const QString &remote);
 
 }  // namespace Cloud
 
-// `omadrive cloud status|mount|unmount|connect`.
+// `pathfinder cloud status|mount|unmount|connect`.
 int runCloud(const QStringList &args);

@@ -1,4 +1,4 @@
-pkgname=omadrive
+pkgname=pathfinder
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Two-pane file manager for local folders and OneDrive'
@@ -6,8 +6,10 @@ arch=('x86_64' 'aarch64')
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal' 'libsecret' 'qt6-svg' 'fuse3' 'rclone')
 optdepends=('qt6-webengine: PDF previews (QtPdf)'
-            'nodejs: MCP server for agents (omadrive agent / omadrive-mcp)')
+            'nodejs: MCP server for agents (pathfinder agent / pathfinder-mcp)')
 makedepends=('gcc' 'make')
+conflicts=('omadrive')
+replaces=('omadrive')
 source=()
 sha256sums=()
 
@@ -18,11 +20,11 @@ build() {
 
 package() {
   cd "$startdir/.."
-  install -Dm755 build/omadrive "$pkgdir/usr/bin/omadrive"
+  install -Dm755 build/pathfinder "$pkgdir/usr/bin/pathfinder"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-  install -Dm755 "$startdir/../mcp/omadrive-mcp.mjs" "$pkgdir/usr/lib/omadrive/mcp/omadrive-mcp.mjs"
-  install -Dm644 "$startdir/../mcp/package.json" "$pkgdir/usr/lib/omadrive/mcp/package.json"
-  install -Dm644 "$startdir/omadrive.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/omadrive.svg"
-  install -Dm644 "$startdir/omadrive.desktop" "$pkgdir/usr/share/applications/omadrive.desktop"
-  install -Dm644 "$startdir/omadrive-rclone@.service" "$pkgdir/usr/lib/systemd/user/omadrive-rclone@.service"
+  install -Dm755 "$startdir/../mcp/pathfinder-mcp.mjs" "$pkgdir/usr/lib/pathfinder/mcp/pathfinder-mcp.mjs"
+  install -Dm644 "$startdir/../mcp/package.json" "$pkgdir/usr/lib/pathfinder/mcp/package.json"
+  install -Dm644 "$startdir/pathfinder.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/pathfinder.svg"
+  install -Dm644 "$startdir/pathfinder.desktop" "$pkgdir/usr/share/applications/pathfinder.desktop"
+  install -Dm644 "$startdir/pathfinder-rclone@.service" "$pkgdir/usr/lib/systemd/user/pathfinder-rclone@.service"
 }

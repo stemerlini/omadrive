@@ -5,6 +5,6 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mkdir -p "$ROOT/build/tests"
 cd "$ROOT/build/tests"
 
-qmake6 "$ROOT/tests/omadrive_tests.pro"
+qmake6 "$ROOT/tests/pathfinder_tests.pro"
 make -j"$(nproc)"
-QT_QPA_PLATFORM=offscreen ./omadrive_tests
+QT_QPA_PLATFORM=offscreen ./pathfinder_tests

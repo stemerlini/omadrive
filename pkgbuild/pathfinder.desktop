@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Omadrive
+Name=Pathfinder
 Comment=Two-pane file manager for local folders and OneDrive
-Exec=omadrive %f
-Icon=omadrive
+Exec=pathfinder %f
+Icon=pathfinder
 Terminal=false
 Categories=Utility;FileManager;
-StartupWMClass=omadrive
+StartupWMClass=pathfinder
