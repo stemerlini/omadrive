@@ -43,10 +43,6 @@ int okWith(QJsonObject obj) {
 
 const QString kWorkLeak = QStringLiteral("Files from a work OneDrive stay in that account; nothing was changed");
 
-bool inside(const QString &path, const QString &dir) {
-    return !dir.isEmpty() && (path == dir || path.startsWith(dir + '/'));
-}
-
 // The account for a command: the one whose mount folder holds an absolute
 // path, else --account, else the default. A path in one account's folder
 // with --account naming another is refused.
@@ -230,12 +226,6 @@ GraphResult graphCall(const GraphSession &s, const QByteArray &verb, const QStri
     if (r.status < 200 || r.status >= 300)
         r.error = r.json.value("error").toObject().value("message").toString(reply->errorString());
     return r;
-}
-
-// "/a/b c" -> "root:/a/b%20c:" for a path-addressed item.
-QString rootPath(const QString &drivePath) {
-    return drivePath == "/" ? QStringLiteral("root")
-                            : "root:" + QString::fromUtf8(QUrl::toPercentEncoding(drivePath, "/")) + ":";
 }
 
 // OneDrive's own search; a recursive listing of a large drive takes a minute.
@@ -523,83 +513,9 @@ int cmdRefresh(const QString &wanted) {
     return okWith({{"account", a.remote}, {"mountpoint", a.mountpoint}});
 }
 
-int claimRefused(const QString &reason, const QString &path, const QString &detail = {}) {
-    QString error = detail;
-    if (error.isEmpty())
-        error = reason == "taken"     ? QString("%1 was claimed elsewhere").arg(path)
-              : reason == "pending" ? QString("%1 has changes here that are not on OneDrive yet").arg(path)
-                                    : QString("Could not claim %1").arg(path);
-    return emitJson({{"ok", false}, {"reason", reason}, {"error", error}, {"path", path}});
-}
-
-// Moves an item on OneDrive into <parent>/.claimed/<host>/ (or where --as
-// says). The move is guarded by the eTag read just before it: a move changes
-// the eTag, so of several machines claiming the same file exactly one wins
-// and the others get 412 or find the source gone ("taken"). A plain rclone
-// move would not do: it moves by id, so a late machine would take the file
-// back out of the winner's folder.
-int cmdClaim(const QString &path, const QString &as, const QString &wanted) {
-    if (path.isEmpty())
-        return fail("Usage: omadrive agent claim <path> [--as <name|path>] [--account <name>]");
-    QString error;
-    const Account a = accountFor(path, wanted, &error);
-    if (a.remote.isEmpty())
-        return fail(error);
-    if (QDir::isAbsolutePath(path) && QFileInfo::exists(path) && !inside(QDir::cleanPath(path), a.mountpoint)
-        && Cloud::ownerOf(path).remote.isEmpty())
-        return fail(QString("%1 is not in a OneDrive folder").arg(path));
-    const QString p = Cloud::drivePath(a, path);
-    if (p == "/")
-        return fail("Cannot claim the drive root");
-
-    const QString name = p.mid(p.lastIndexOf('/') + 1);
-    QString dest;
-    if (!as.contains('/'))
-        dest = join(join(join(parentOf(p), ".claimed"), QSysInfo::machineHostName()), as.isEmpty() ? name : as);
-    else
-        dest = Cloud::drivePath(a, as);
-    if (dest == "/" || dest == p)
-        return fail("Invalid destination");
-
-    if (a.mounted && Cloud::pending(a).contains(p))
-        return claimRefused("pending", p);
-    const GraphSession s = graphSession(a, &error);
-    if (!error.isEmpty())
-        return claimRefused("failed", p, error);
-    const GraphResult item = graphCall(s, "GET", rootPath(p), "$select=id,eTag");
-    if (item.status == 404)
-        return claimRefused("taken", p);
-    if (!item.error.isEmpty())
-        return claimRefused("failed", p, item.error);
-    if (graphCall(s, "GET", rootPath(dest), "$select=id").status != 404)
-        return claimRefused("invalid", p, QString("%1 already exists").arg(dest));
-    const Cloud::Run mk = Cloud::rclone({"mkdir", Cloud::remotePath(a, parentOf(dest))}, 60000);
-    const GraphResult folder = graphCall(s, "GET", rootPath(parentOf(dest)), "$select=id");
-    if (mk.code != 0 || !folder.error.isEmpty())
-        return claimRefused("failed", p, mk.code != 0 ? mk.error() : folder.error);
-
-    const GraphResult moved = graphCall(
-        s, "PATCH", "items/" + item.json.value("id").toString(), "@microsoft.graph.conflictBehavior=fail",
-        {{"parentReference", QJsonObject{{"id", folder.json.value("id").toString()}}},
-         {"name", dest.mid(dest.lastIndexOf('/') + 1)}},
-        item.json.value("eTag").toString().toUtf8());
-    if (moved.status == 404 || moved.status == 412)
-        return claimRefused("taken", p);
-    if (moved.status == 409)
-        return claimRefused("invalid", p, QString("%1 already exists").arg(dest));
-    if (!moved.error.isEmpty())
-        return claimRefused("failed", p, moved.error);
-    refreshMount(a, p);
-    refreshMount(a, dest);
-    return okWith({{"account", a.remote},
-                   {"path", a.mounted ? a.mountpoint + dest : dest},
-                   {"remotePath", dest},
-                   {"mounted", a.mounted}});
-}
-
 struct Args {
     QStringList positional;
-    QString account, dest, scope, as;
+    QString account, dest, scope;
     bool edit = false;
 };
 
@@ -611,8 +527,6 @@ Args parse(const QStringList &args) {
             a.account = args[++i];
         else if (arg == "--dest" && i + 1 < args.size())
             a.dest = args[++i];
-        else if (arg == "--as" && i + 1 < args.size())
-            a.as = args[++i];
         else if (arg == "--scope" && i + 1 < args.size())
             a.scope = args[++i];
         else if (arg == "--edit")
@@ -629,7 +543,7 @@ QString pos(const Args &a, int i) { return a.positional.value(i); }
 
 int runAgent(const QStringList &rawArgs) {
     if (rawArgs.isEmpty())
-        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share|status|pending|refresh|claim> ...");
+        return fail("Usage: omadrive agent <accounts|list|stat|search|cat|download|upload|mkdir|rename|trash|share|status|pending|refresh> ...");
     const QString command = rawArgs.first();
     const Args a = parse(rawArgs.mid(1));
 
@@ -661,7 +575,5 @@ int runAgent(const QStringList &rawArgs) {
         return cmdPending(a.account);
     if (command == "refresh")
         return cmdRefresh(a.account);
-    if (command == "claim")
-        return cmdClaim(pos(a, 0), a.as, a.account);
     return fail(QString("Unknown command: %1").arg(command));
 }

@@ -61,12 +61,10 @@ omadrive agent rename <path> <newName>
 omadrive agent trash <path>
 omadrive agent share <path> [--edit] [--scope anonymous|organization]
 omadrive agent status <path>          omadrive agent pending
-omadrive agent refresh                omadrive agent claim <path> [--as <name|path>]
+omadrive agent refresh
 ```
 
 Paths are from the drive root (`/Documents/a.pdf`) or inside a mount folder, which also picks the account; otherwise `--account` names it (`onedrive-ses`, `SES`), defaulting to the personal one. Each command prints one JSON object, `{"ok":true,…}` or `{"ok":false,"error":…}`. Uploads and renames never overwrite, `trash` uses the OneDrive recycle bin, and work files never leave their account: a file from a work account's folder cannot be uploaded to another account, nor a work file downloaded into another account's folder. When the account is mounted, `download` and `cat` read through the mount (so changes not yet uploaded are included) and changes made on OneDrive show in the folder at once. `search` uses OneDrive's own search.
-
-`claim` is for jobs that several machines watch, such as an inbox folder: it moves the item on OneDrive into `<parent>/.claimed/<hostname>/` (`--as` gives another name there, or a whole destination path). The move is guarded by the item's eTag (a move changes it), so of several machines claiming one file exactly one wins; it prints `{"ok":true,"path":…}` for the winner and exits non-zero with `{"ok":false,"reason":"taken"}` for the rest, or `"reason":"pending"` for a mounted file still waiting to upload.
 
 `mcp/omadrive-mcp.mjs` is a dependency-free MCP (Model Context Protocol) server over stdio that exposes these as tools (`onedrive_list`, `onedrive_read`, `onedrive_upload`, …), for any MCP client. It runs `omadrive agent` under the hood, so the same rules apply. Register it with GitHub Copilot CLI:
 
