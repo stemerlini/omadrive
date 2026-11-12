@@ -6,6 +6,7 @@
 
 #include "backend.h"
 #include "folderlist.h"
+#include "labels.h"
 #include "preview.h"
 #include "rclone.h"
 #include "theme.h"
@@ -15,6 +16,43 @@ class PathfinderTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void kindsComeFromNamesAlone()
+    {
+        QTemporaryDir dir;
+        auto kind = [&](const QString &name) { return FolderList::kindOf(dir.path() + "/" + name, false, false); };
+        QCOMPARE(FolderList::kindOf(dir.path(), true, false), QString("folder"));
+        QCOMPARE(kind("photo.JPG"), QString("image"));
+        QCOMPARE(kind("paper.pdf"), QString("pdf"));
+        QCOMPARE(kind("data.tar.gz"), QString("archive"));
+        QCOMPARE(kind("budget.xlsx"), QString("spreadsheet"));
+        QCOMPARE(kind("notes.md"), QString("markdown"));
+        QCOMPARE(kind("main.cpp"), QString("code"));
+        QCOMPARE(kind("readme.txt"), QString("text"));
+        QCOMPARE(kind("mystery"), QString("file"));
+    }
+
+    void labelsFollowRenamesAndMoves()
+    {
+        QTemporaryDir dir, config;
+        QVERIFY(QDir(dir.path()).mkpath("a/inner") && QDir(dir.path()).mkpath("b"));
+        write(dir.path() + "/a/inner/f.txt", "x");
+        const QString file = config.path() + "/labels.json";
+        {
+            Labels labels(file);
+            Labels::setInstance(&labels);
+            labels.setLabel({dir.path() + "/a/inner/f.txt"}, "red");
+            labels.setLabel({dir.path() + "/a"}, "nope");
+            Backend backend;
+            QCOMPARE(backend.renameItem(dir.path() + "/a", "c"), QString());
+            QCOMPARE(backend.moveItems({dir.path() + "/c/inner"}, dir.path() + "/b"), QString());
+            Labels::setInstance(nullptr);
+        }
+        Labels reloaded(file);
+        QCOMPARE(reloaded.label(dir.path() + "/b/inner/f.txt"), QString("red"));
+        QCOMPARE(reloaded.label(dir.path() + "/a/inner/f.txt"), QString());
+        QCOMPARE(reloaded.label(dir.path() + "/a"), QString());
+    }
+
     void copyNeverOverwrites()
     {
         QTemporaryDir dir;

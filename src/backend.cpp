@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "labels.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -104,8 +105,11 @@ QString Backend::moveItems(const QStringList &paths, const QString &destination)
         }
 
         const QString target = uniquePath(destination, info.fileName());
-        if (QFile::rename(path, target))
+        if (QFile::rename(path, target)) {
+            if (Labels::instance())
+                Labels::instance()->moved(info.absoluteFilePath(), target);
             continue;
+        }
 
         // Across filesystems a rename fails, so copy and remove the original
         // only after the copy fully succeeded.
@@ -117,6 +121,8 @@ QString Backend::moveItems(const QStringList &paths, const QString &destination)
         const bool removed = info.isDir() ? QDir(path).removeRecursively() : QFile::remove(path);
         if (!removed)
             errors += tr("Copied %1 but could not remove the original").arg(info.fileName()) + "\n";
+        else if (Labels::instance())
+            Labels::instance()->moved(info.absoluteFilePath(), target);
     }
     return errors.trimmed();
 }
@@ -124,7 +130,10 @@ QString Backend::moveItems(const QStringList &paths, const QString &destination)
 QString Backend::trashItems(const QStringList &paths) {
     QString errors;
     for (const QString &path : paths)
-        if (!QFile::moveToTrash(path))
+        if (QFile::moveToTrash(path)) {
+            if (Labels::instance())
+                Labels::instance()->removed(QFileInfo(path).absoluteFilePath());
+        } else
             errors += (errors.isEmpty() ? "" : "\n") + tr("Cannot move %1 to the trash").arg(QFileInfo(path).fileName());
     return errors;
 }
@@ -155,7 +164,11 @@ QString Backend::renameItem(const QString &path, const QString &newName) {
         return {};
     if (QFileInfo::exists(target))
         return tr("%1 already exists").arg(newName);
-    return QFile::rename(path, target) ? QString() : tr("Cannot rename %1").arg(info.fileName());
+    if (!QFile::rename(path, target))
+        return tr("Cannot rename %1").arg(info.fileName());
+    if (Labels::instance())
+        Labels::instance()->moved(info.absoluteFilePath(), target);
+    return {};
 }
 
 bool Backend::isDir(const QString &path) const {

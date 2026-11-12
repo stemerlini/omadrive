@@ -5,5 +5,5 @@ TEMPLATE = app
 
 INCLUDEPATH += ../src
 
-HEADERS += ../src/preview.h ../src/backend.h ../src/folderlist.h ../src/rclone.h ../src/theme.h ../src/translator.h
-SOURCES += pathfinder_tests.cpp ../src/preview.cpp ../src/backend.cpp ../src/folderlist.cpp ../src/rclone.cpp ../src/theme.cpp ../src/translator.cpp
+HEADERS += ../src/preview.h ../src/backend.h ../src/folderlist.h ../src/labels.h ../src/rclone.h ../src/theme.h ../src/translator.h
+SOURCES += pathfinder_tests.cpp ../src/preview.cpp ../src/backend.cpp ../src/folderlist.cpp ../src/labels.cpp ../src/rclone.cpp ../src/theme.cpp ../src/translator.cpp

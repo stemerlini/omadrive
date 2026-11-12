@@ -9,6 +9,7 @@ HEADERS += src/agent.h \
     src/backend.h \
     src/cloud.h \
     src/folderlist.h \
+    src/labels.h \
     src/preview.h \
     src/theme.h \
     src/translator.h
@@ -19,6 +20,7 @@ SOURCES += src/agent.cpp \
     src/backend.cpp \
     src/cloud.cpp \
     src/folderlist.cpp \
+    src/labels.cpp \
     src/preview.cpp \
     src/theme.cpp \
     src/translator.cpp

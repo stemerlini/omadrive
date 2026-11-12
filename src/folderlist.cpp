@@ -1,10 +1,12 @@
 #include "folderlist.h"
+#include "labels.h"
 
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QLocale>
+#include <QMimeDatabase>
 #include <QPointer>
 #include <QtConcurrent>
 
@@ -18,6 +20,43 @@ FolderList::FolderList(QObject *parent) : QAbstractListModel(parent) {
     // rclone changes its cache without touching the folder, so look again.
     m_cloudPoll.setInterval(2000);
     connect(&m_cloudPoll, &QTimer::timeout, this, &FolderList::updateCloud);
+    if (Labels::instance())
+        connect(Labels::instance(), &Labels::changed, this, &FolderList::updateLabels);
+}
+
+QString FolderList::kindOf(const QString &path, bool isDir, bool executable, QString *typeText) {
+    if (isDir) {
+        if (typeText) *typeText = tr("Folder");
+        return "folder";
+    }
+    static const QMimeDatabase db;
+    const QMimeType mime = db.mimeTypeForFile(path, QMimeDatabase::MatchExtension);
+    const QString name = mime.name();
+    if (typeText)
+        *typeText = mime.isDefault() ? (QFileInfo(path).suffix().isEmpty() ? tr("File") : QFileInfo(path).suffix().toUpper() + tr(" file"))
+                                     : mime.comment();
+    auto any = [&](std::initializer_list<const char *> parts) {
+        for (const char *part : parts)
+            if (name.contains(QLatin1String(part)))
+                return true;
+        return false;
+    };
+    if (name.startsWith("image/")) return "image";
+    if (name.startsWith("video/")) return "video";
+    if (name.startsWith("audio/")) return "audio";
+    if (name == "application/pdf") return "pdf";
+    if (any({"zip", "tar", "rar", "7z", "gzip", "bzip", "-xz", "zstd", "compressed", "archive", "iso9660", "lzma"}))
+        return "archive";
+    if (any({"spreadsheet", "ms-excel", "text/csv"})) return "spreadsheet";
+    if (any({"presentation", "powerpoint"})) return "slides";
+    if (any({"wordprocessing", "msword", "opendocument.text", "rtf", "epub"})) return "document";
+    if (name == "text/markdown") return "markdown";
+    if (any({"shellscript"}) || (executable && !mime.inherits("text/plain") && mime.isDefault()))
+        return "executable";
+    if (name == "text/plain") return "text";
+    if (mime.inherits("text/plain") || any({"json", "xml", "javascript", "yaml", "toml", "x-python"}))
+        return "code";
+    return executable ? "executable" : "file";
 }
 
 int FolderList::rowCount(const QModelIndex &parent) const {
@@ -35,13 +74,27 @@ QVariant FolderList::data(const QModelIndex &index, int role) const {
     case SizeTextRole: return e.isDir ? QString() : QLocale().formattedDataSize(e.size, 1);
     case ModifiedRole: return QLocale().toString(e.modified, QLocale::ShortFormat);
     case CloudRole: return e.cloud;
+    case SizeRole: return e.isDir ? -1 : e.size;
+    case AgeRole: return e.modified.isValid() ? e.modified.secsTo(QDateTime::currentDateTime()) : -1;
+    case ModifiedFullRole: return QLocale().toString(e.modified, QLocale::LongFormat);
+    case KindRole: return e.kind;
+    case TypeTextRole: return e.typeText;
+    case ExtensionRole: return e.isDir ? QString() : QFileInfo(e.name).suffix().toLower();
+    case ChildCountRole: return e.children;
+    case LabelRole: return e.label;
+    case HiddenRole: return e.hidden;
+    case LinkRole: return !e.linkTarget.isEmpty();
+    case LinkTargetRole: return e.linkTarget;
     }
     return {};
 }
 
 QHash<int, QByteArray> FolderList::roleNames() const {
     return {{NameRole, "name"}, {PathRole, "path"}, {IsDirRole, "isDir"},
-            {SizeTextRole, "sizeText"}, {ModifiedRole, "modified"}, {CloudRole, "cloud"}};
+            {SizeTextRole, "sizeText"}, {ModifiedRole, "modified"}, {CloudRole, "cloud"},
+            {SizeRole, "size"}, {AgeRole, "age"}, {ModifiedFullRole, "modifiedFull"}, {KindRole, "kind"},
+            {TypeTextRole, "typeText"}, {ExtensionRole, "extension"}, {ChildCountRole, "childCount"},
+            {LabelRole, "label"}, {HiddenRole, "hidden"}, {LinkRole, "isLink"}, {LinkTargetRole, "linkTarget"}};
 }
 
 void FolderList::setPath(const QString &path) {
@@ -97,23 +150,25 @@ void FolderList::refresh() {
     QVector<Entry> entries;
     const auto infos = QDir(m_path).entryInfoList(filters);
     entries.reserve(infos.size());
-    for (const QFileInfo &info : infos)
-        entries.append({info.fileName(), info.absoluteFilePath(), info.isDir(), info.size(), info.lastModified(),
-                        Rclone::state(m_mount, info.absoluteFilePath(), info.isDir())});
+    const Labels *labels = Labels::instance();
+    for (const QFileInfo &info : infos) {
+        Entry e{info.fileName(), info.absoluteFilePath(), info.isDir(), info.size(), info.lastModified(),
+                Rclone::state(m_mount, info.absoluteFilePath(), info.isDir())};
+        e.kind = kindOf(e.path, e.isDir, info.isExecutable(), &e.typeText);
+        e.hidden = info.isHidden();
+        e.linkTarget = info.isSymLink() ? info.symLinkTarget() : QString();
+        e.label = labels ? labels->label(e.path) : QString();
+        entries.append(e);
+    }
+    sortEntries(entries);
 
-    // Folders first, then names without regard to case.
-    std::sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
-        if (a.isDir != b.isDir)
-            return a.isDir;
-        return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
-    });
-
-    // Folders keep their last state until the background pass updates it.
+    // Folders keep their last state and count until the background pass updates them.
     for (Entry &e : entries)
         if (e.isDir)
             for (const Entry &old : std::as_const(m_entries))
                 if (old.path == e.path) {
                     e.cloud = old.cloud;
+                    e.children = old.children;
                     break;
                 }
     beginResetModel();
@@ -121,7 +176,122 @@ void FolderList::refresh() {
     endResetModel();
     ++m_generation;
     m_folderBusy = false;
+    emit listed();
     updateFolders();
+    updateChildCounts();
+}
+
+void FolderList::sortEntries(QVector<Entry> &entries) const {
+    const QString key = m_sortKey;
+    const bool descending = m_sortDescending;
+    std::stable_sort(entries.begin(), entries.end(), [key, descending](const Entry &a, const Entry &b) {
+        if (a.isDir != b.isDir)
+            return a.isDir;
+        const int byName = a.name.compare(b.name, Qt::CaseInsensitive);
+        int order = 0;
+        if (key == "size" && !a.isDir)
+            order = a.size < b.size ? -1 : a.size > b.size ? 1 : 0;
+        else if (key == "modified")
+            order = a.modified < b.modified ? -1 : a.modified > b.modified ? 1 : 0;
+        else if (key == "type")
+            order = a.typeText.compare(b.typeText, Qt::CaseInsensitive);
+        if (order == 0)
+            order = byName;
+        return descending ? order > 0 : order < 0;
+    });
+}
+
+void FolderList::setSortKey(const QString &key) {
+    if (key == m_sortKey || !QStringList{"name", "type", "size", "modified"}.contains(key))
+        return;
+    m_sortKey = key;
+    // Newest and largest first, as people mostly want.
+    m_sortDescending = key == "size" || key == "modified";
+    emit sortChanged();
+    refresh();
+}
+
+void FolderList::setSortDescending(bool descending) {
+    if (descending == m_sortDescending)
+        return;
+    m_sortDescending = descending;
+    emit sortChanged();
+    refresh();
+}
+
+int FolderList::folderCount() const {
+    return std::count_if(m_entries.cbegin(), m_entries.cend(), [](const Entry &e) { return e.isDir; });
+}
+
+qint64 FolderList::totalSize() const {
+    qint64 total = 0;
+    for (const Entry &e : m_entries)
+        if (!e.isDir)
+            total += e.size;
+    return total;
+}
+
+qint64 FolderList::largestSize() const {
+    qint64 largest = 0;
+    for (const Entry &e : m_entries)
+        if (!e.isDir)
+            largest = std::max(largest, e.size);
+    return largest;
+}
+
+QString FolderList::formatSize(qint64 bytes) const {
+    return QLocale().formattedDataSize(bytes, 1);
+}
+
+qint64 FolderList::sizeOf(const QStringList &paths) const {
+    qint64 total = 0;
+    for (const Entry &e : m_entries)
+        if (!e.isDir && paths.contains(e.path))
+            total += e.size;
+    return total;
+}
+
+void FolderList::updateLabels() {
+    const Labels *labels = Labels::instance();
+    for (int i = 0; i < m_entries.size(); ++i) {
+        const QString label = labels ? labels->label(m_entries[i].path) : QString();
+        if (label != m_entries[i].label) {
+            m_entries[i].label = label;
+            emit dataChanged(index(i), index(i), {LabelRole});
+        }
+    }
+}
+
+// How many items each folder holds, listed in the background: in a cloud
+// mount every listing can be a request to OneDrive.
+void FolderList::updateChildCounts() {
+    QStringList dirs;
+    for (const Entry &e : std::as_const(m_entries))
+        if (e.isDir && dirs.size() < 500)
+            dirs << e.path;
+    if (dirs.isEmpty())
+        return;
+    const quint64 generation = m_generation;
+    QDir::Filters filters = QDir::AllEntries | QDir::NoDotAndDotDot | QDir::System;
+    if (m_showHidden)
+        filters |= QDir::Hidden;
+    QPointer<FolderList> self(this);
+    (void)QtConcurrent::run([self, generation, dirs, filters] {
+        for (const QString &dir : dirs) {
+            if (!self)
+                return;
+            const int count = QDir(dir).entryList(filters).size();
+            QMetaObject::invokeMethod(self, [self, generation, dir, count] {
+                if (!self || generation != self->m_generation)
+                    return;
+                const int row = self->indexOfPath(dir);
+                if (row >= 0 && self->m_entries[row].children != count) {
+                    self->m_entries[row].children = count;
+                    emit self->dataChanged(self->index(row), self->index(row), {ChildCountRole});
+                }
+            });
+        }
+    });
 }
 
 QString FolderList::pathAt(int row) const {

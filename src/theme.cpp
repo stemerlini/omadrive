@@ -69,7 +69,8 @@ QHash<QString, QString> Theme::readColors(const QString &path, bool *dark) {
         {"foreground", "#a9b1d6"},       {"bright_foreground", "#c0caf5"},
         {"dark_foreground", "#565f89"},  {"magenta", "#bb9af7"},
         {"green", "#9ece6a"},            {"yellow", "#e0af68"},
-        {"red", "#f7768e"},
+        {"red", "#f7768e"},              {"blue", "#7aa2f7"},
+        {"cyan", "#7dcfff"},             {"orange", "#ff9e64"},
     };
     QString text;
     QFile file(path);
@@ -106,6 +107,31 @@ QHash<QString, QString> Theme::readColors(const QString &path, bool *dark) {
         *dark = match.hasMatch() ? match.captured(1) != "light" : bg.lightnessF() < 0.5;
     }
     return colors;
+}
+
+QString Theme::labelColor(const QString &label) const {
+    if (label == "purple") return color("magenta");
+    if (label == "gray") return color("dark_foreground");
+    return color(label);
+}
+
+QString Theme::kindColor(const QString &kind) const {
+    static const QHash<QString, QString> colors{
+        {"folder", "accent"},   {"image", "magenta"},      {"video", "orange"},     {"audio", "cyan"},
+        {"archive", "yellow"},  {"pdf", "red"},            {"document", "blue"},    {"spreadsheet", "green"},
+        {"slides", "orange"},   {"markdown", "cyan"},      {"code", "green"},       {"executable", "red"},
+    };
+    return color(colors.value(kind, "foreground"));
+}
+
+QString Theme::kindGlyph(const QString &kind) {
+    static const QHash<QString, char16_t> glyphs{
+        {"folder", 0xf07b},   {"image", 0xf1c5},       {"video", 0xf1c8},  {"audio", 0xf1c7},
+        {"archive", 0xf1c6},  {"pdf", 0xf1c1},         {"document", 0xf1c2}, {"spreadsheet", 0xf1c3},
+        {"slides", 0xf1c4},   {"markdown", 0xf48a},    {"code", 0xf1c9},   {"executable", 0xf120},
+        {"text", 0xf15c},
+    };
+    return QString(QChar(glyphs.value(kind, 0xf15b)));
 }
 
 QString Theme::fontFamily() const {
