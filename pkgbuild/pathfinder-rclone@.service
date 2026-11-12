@@ -12,10 +12,13 @@ ExecStart=/usr/bin/rclone mount ${REMOTE} ${MOUNTPOINT} \
   --vfs-cache-max-age 8760h \
   --vfs-cache-max-size 50G \
   --dir-cache-time 8760h \
-  --vfs-refresh \
   --poll-interval 1m \
   --rc --rc-addr unix://%t/pathfinder-rclone-%i.sock --rc-no-auth \
   --log-level INFO
+# List every folder in the background once mounted, so apps find them warm after a
+# boot. One top-level folder at a time: Personal Vault cannot be listed, and with
+# --vfs-refresh that one error stopped the whole refresh.
+ExecStartPost=/bin/sh -c 'for d in "${MOUNTPOINT}"/*/; do /usr/bin/rclone rc --unix-socket %t/pathfinder-rclone-%i.sock vfs/refresh dir="$$(basename "$$d")" recursive=true _async=true >/dev/null 2>&1; done; true'
 ExecStop=/usr/bin/fusermount3 -uz ${MOUNTPOINT}
 Restart=on-failure
 RestartSec=10
