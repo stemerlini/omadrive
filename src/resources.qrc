@@ -18,6 +18,7 @@
         <file alias="icons/menu-paste.svg">icons/menu-paste.svg</file>
         <file alias="icons/menu-path.svg">icons/menu-path.svg</file>
         <file alias="icons/menu-rename.svg">icons/menu-rename.svg</file>
+        <file alias="icons/menu-label.svg">icons/menu-label.svg</file>
         <file alias="icons/menu-trash.svg">icons/menu-trash.svg</file>
         <file alias="icons/menu-transfer.svg">icons/menu-transfer.svg</file>
         <file alias="icons/menu-new.svg">icons/menu-new.svg</file>

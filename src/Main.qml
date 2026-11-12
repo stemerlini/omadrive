@@ -33,6 +33,8 @@ ApplicationWindow {
     property bool leftActive: true
     property bool showHidden: false
     property bool showTree: true
+    property string sortKey: "name"
+    property bool sortDescending: false
     readonly property var activePane: leftActive || !split ? leftPane : rightPane
     readonly property var otherPane: activePane === leftPane ? rightPane : leftPane
     readonly property int activeTab: activePane === leftPane ? leftTab : rightTab
@@ -60,6 +62,8 @@ ApplicationWindow {
     function makeTab(path, selected) {
         var folder = listType.createObject(win)
         folder.showHidden = showHidden
+        folder.sortKey = sortKey
+        folder.sortDescending = sortDescending
         folder.path = path || backend.homePath()
         return tabType.createObject(win, { folder: folder, selected: selected || "" })
     }
@@ -203,6 +207,8 @@ ApplicationWindow {
     function restoreTabs() {
         showHidden = settings.showHidden
         showTree = settings.showTree
+        sortKey = settings.sortKey
+        sortDescending = settings.sortDescending
         var saved = []
         // Ctrl+Shift+N opens a window with just the starting tabs.
         if (!freshStart)
@@ -252,6 +258,8 @@ ApplicationWindow {
         property bool leftActive: true
         property bool showHidden: false
         property bool showTree: true
+        property string sortKey: "name"
+        property bool sortDescending: false
     }
 
     Component.onCompleted: {
@@ -328,6 +336,26 @@ ApplicationWindow {
         transferPaths(paths, tab.folder.path, move)
     }
 
+    // A click on a column header: sort by it, or turn the order round.
+    function sortBy(key) {
+        if (key === sortKey) {
+            sortDescending = !sortDescending
+        } else {
+            sortKey = key
+            sortDescending = key === "size" || key === "modified"
+        }
+        tabs.forEach(function (t) { t.folder.sortKey = sortKey; t.folder.sortDescending = sortDescending })
+        settings.sortKey = sortKey
+        settings.sortDescending = sortDescending
+    }
+
+    function setLabel(label) {
+        var items = activePane.targets()
+        if (items.length === 0)
+            return
+        labels.setLabel(items, label)
+    }
+
     function paneAction(action) {
         if (action === "open") activePane.openCurrent()
         else if (action === "copy") copy()
@@ -345,6 +373,8 @@ ApplicationWindow {
         else if (action === "clipCut") clipboardPut(true)
         else if (action === "paste") paste()
         else if (action === "copyPath") copyPaths()
+        else if (action.startsWith("label:")) setLabel(action.slice(6))
+        else if (action.startsWith("sort:")) sortBy(action.slice(5))
         else if (action === "share:view" || action === "share:edit") shareLink(action === "share:edit")
     }
 
@@ -479,6 +509,15 @@ ApplicationWindow {
         delegate: Item {
             required property int index
             Shortcut { sequence: "Ctrl+" + (index + 1); context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.showTab(index) }
+        }
+    }
+    // Alt+1…7 put a colour label on the highlighted or marked items, Alt+0 takes it off.
+    Repeater {
+        model: ["", "red", "orange", "yellow", "green", "blue", "purple", "gray"]
+        delegate: Item {
+            required property int index
+            required property string modelData
+            Shortcut { sequence: "Alt+" + index; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.setLabel(modelData) }
         }
     }
 
@@ -818,6 +857,8 @@ ApplicationWindow {
                     ["Drag and drop", qsTr("Copy onto a pane, folder or tab; Shift moves")],
                     ["Ctrl+N", qsTr("New file or folder")],
                     ["F2", qsTr("Rename")],
+                    ["Alt+1…7 / Alt+0", qsTr("Colour label / remove it")],
+                    ["Click a column title", qsTr("Sort by it; again to reverse")],
                     ["Delete", qsTr("Move to the trash")],
                     ["Ctrl+R / F5", qsTr("Refresh")],
                     ["Ctrl+H", qsTr("Show hidden files")],

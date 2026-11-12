@@ -18,6 +18,7 @@ Rectangle {
     property bool currentIsDir: false
     property string currentSize: ""
     property string currentModified: ""
+    property string currentType: ""
     property string currentCloud: ""
     signal opened(string path)
     signal openedInNewTab(string path)
@@ -144,19 +145,32 @@ Rectangle {
                     required property string name
                     required property string path
                     required property bool isDir
+                    required property string kind
+                    required property string label
                     readonly property bool current: !column.ahead && path === tree.currentPath
                     width: ListView.view.width
                     height: 24
                     radius: Math.min(3, theme.radius)
                     color: current ? Qt.alpha(theme.accent, 0.25) : entryHover.hovered ? Qt.alpha(theme.accent, 0.08) : "transparent"
                     Label {
+                        id: entryGlyph
                         anchors.verticalCenter: parent.verticalCenter
                         x: 8
-                        width: parent.width - 16
+                        width: 14
+                        text: theme.kindGlyph(entry.kind)
+                        font.pixelSize: 12
+                        color: entry.label !== "" ? theme.labelColor(entry.label) : theme.kindColor(entry.kind)
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: entryGlyph.right
+                        anchors.leftMargin: 6
+                        width: parent.width - 36
                         text: entry.name + (entry.isDir ? "/" : "")
                         elide: Text.ElideRight
                         font.pixelSize: 13
-                        color: entry.current ? theme.bright : entry.isDir ? theme.accent : theme.foreground
+                        color: entry.label !== "" ? theme.labelColor(entry.label)
+                             : entry.current ? theme.bright : entry.isDir ? theme.accent : theme.foreground
                     }
                     HoverHandler { id: entryHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
@@ -205,6 +219,7 @@ Rectangle {
                 spacing: 10
                 Repeater {
                     model: [
+                        [qsTr("Type"), tree.currentType],
                         [qsTr("Size"), tree.currentSize],
                         [qsTr("Modified"), tree.currentModified],
                         [qsTr("OneDrive"), tree.currentCloud === "local" ? qsTr("On this device")

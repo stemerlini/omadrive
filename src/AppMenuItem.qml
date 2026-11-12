@@ -8,6 +8,8 @@ MenuItem {
 
     property string iconName: subMenu && subMenu.iconName ? subMenu.iconName : ""
     property string hint: ""
+    // A coloured dot in place of the icon, for the label entries.
+    property color dot: "transparent"
 
     height: visible ? implicitHeight : 0
     implicitHeight: 32
@@ -16,7 +18,15 @@ MenuItem {
 
     contentItem: RowLayout {
         spacing: 10
+        Rectangle {
+            visible: item.dot.a > 0
+            Layout.preferredWidth: 16
+            Layout.preferredHeight: 16
+            color: "transparent"
+            Rectangle { anchors.centerIn: parent; width: 10; height: 10; radius: 5; color: item.dot }
+        }
         Image {
+            visible: item.dot.a === 0
             Layout.preferredWidth: 16
             Layout.preferredHeight: 16
             sourceSize: Qt.size(16, 16)

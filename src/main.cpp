@@ -9,6 +9,7 @@
 #include <QQmlContext>
 #include <QtQml>
 #include <QQuickStyle>
+#include <QStandardPaths>
 #include <QUrl>
 
 #include "agent.h"
@@ -17,6 +18,7 @@
 #include "folderlist.h"
 #include "preview.h"
 #include "theme.h"
+#include "labels.h"
 #include "translator.h"
 
 int main(int argc, char *argv[]) {
@@ -53,6 +55,8 @@ int main(int argc, char *argv[]) {
     app.installTranslator(&translator);
 
     Theme theme;
+    Labels labels(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/labels.json");
+    Labels::setInstance(&labels);
     Backend backend;
     // Tabs create their own lists from QML.
     qmlRegisterType<FolderList>("Pathfinder", 1, 0, "FolderList");
@@ -71,6 +75,7 @@ int main(int argc, char *argv[]) {
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
+    engine.rootContext()->setContextProperty("labels", &labels);
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.rootContext()->setContextProperty("preview", &preview);
     engine.rootContext()->setContextProperty("freshStart", app.arguments().contains("--new-window"));

@@ -52,6 +52,35 @@ Rectangle {
     border.color: pageDrop.containsDrag || (active && paired) ? theme.accent : Qt.alpha(theme.accent, 0.2)
 
     function focusList() { list.forceActiveFocus() }
+
+    readonly property var labelNames: [
+        { name: "red", text: qsTr("Red") }, { name: "orange", text: qsTr("Orange") },
+        { name: "yellow", text: qsTr("Yellow") }, { name: "green", text: qsTr("Green") },
+        { name: "blue", text: qsTr("Blue") }, { name: "purple", text: qsTr("Purple") },
+        { name: "gray", text: qsTr("Gray") }
+    ]
+
+    // "5 min", "3 h", "2 d" for the last month, the date after that.
+    function ageText(age, modified) {
+        if (age < 0) return modified
+        if (age < 60) return qsTr("just now")
+        if (age < 3600) return qsTr("%1 min").arg(Math.floor(age / 60))
+        if (age < 86400) return qsTr("%1 h").arg(Math.floor(age / 3600))
+        if (age < 30 * 86400) return qsTr("%1 d").arg(Math.floor(age / 86400))
+        return modified
+    }
+    // Recent changes stand out, old ones fade.
+    function ageColor(age) {
+        if (age < 0) return theme.muted
+        if (age < 3600) return theme.success
+        if (age < 86400) return theme.accent
+        if (age < 7 * 86400) return theme.foreground
+        return theme.muted
+    }
+    function escaped(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+    readonly property bool wide: list.width > 640
     function remember() { tab.selected = currentItemPath }
 
     function restoreHighlight() {
@@ -260,6 +289,26 @@ Rectangle {
         MenuSeparator {}
         AppMenuItem { text: qsTr("Rename"); iconName: "menu-rename"; hint: "F2"; enabled: !menu.many; onTriggered: pane.menuAction("rename") }
         AppMenu {
+            id: labelSubMenu
+            title: qsTr("Label")
+            iconName: "menu-label"
+            Instantiator {
+                model: pane.labelNames
+                delegate: AppMenuItem {
+                    required property var modelData
+                    required property int index
+                    text: modelData.text
+                    hint: "Alt+" + (index + 1)
+                    dot: theme.labelColor(modelData.name)
+                    onTriggered: pane.menuAction("label:" + modelData.name)
+                }
+                onObjectAdded: (index, object) => labelSubMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => labelSubMenu.removeItem(object)
+            }
+            MenuSeparator {}
+            AppMenuItem { text: qsTr("No label"); hint: "Alt+0"; onTriggered: pane.menuAction("label:") }
+        }
+        AppMenu {
             id: newSubMenu
             title: qsTr("New")
             iconName: "menu-new"
@@ -383,6 +432,7 @@ Rectangle {
             currentSize: list.currentItem ? list.currentItem.sizeText : ""
             currentModified: list.currentItem ? list.currentItem.modified : ""
             currentCloud: pane.currentItemCloud
+            currentType: list.currentItem ? list.currentItem.typeText : ""
             onEntered: (dir, path) => { pane.focusRequested(); pane.lastPath = path; pane.lastIndex = 0; pane.folder.path = dir; pane.focusList() }
             onSelected: path => { pane.focusRequested(); pane.select(pane.folder.indexOfPath(path), 0); pane.focusList() }
             onActivated: path => { pane.focusRequested(); pane.select(pane.folder.indexOfPath(path), 0); pane.openCurrent() }
@@ -412,9 +462,30 @@ Rectangle {
                     anchors.rightMargin: 8
                     spacing: 10
                     Item { visible: pane.folder.cloudMount === true; Layout.preferredWidth: 16 }
-                    Label { Layout.fillWidth: true; text: qsTr("Name"); font.bold: true; font.pixelSize: 12; color: theme.muted }
-                    Label { Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight; text: qsTr("Size"); font.bold: true; font.pixelSize: 12; color: theme.muted }
-                    Label { Layout.preferredWidth: 130; text: qsTr("Modified"); font.bold: true; font.pixelSize: 12; color: theme.muted }
+                    Item { Layout.preferredWidth: 8 }
+                    Repeater {
+                        model: [
+                            { key: "name", text: qsTr("Name"), width: -1, right: false },
+                            { key: "type", text: qsTr("Type"), width: 140, right: false },
+                            { key: "size", text: qsTr("Size"), width: 90, right: true },
+                            { key: "modified", text: qsTr("Modified"), width: 110, right: false }
+                        ]
+                        delegate: Label {
+                            required property var modelData
+                            readonly property bool sorted: pane.folder.sortKey === modelData.key
+                            visible: modelData.key !== "type" || pane.wide
+                            Layout.fillWidth: modelData.width < 0
+                            Layout.preferredWidth: modelData.width < 0 ? -1 : modelData.width
+                            Layout.leftMargin: modelData.key === "name" ? 22 : 0
+                            horizontalAlignment: modelData.right ? Text.AlignRight : Text.AlignLeft
+                            text: modelData.text + (sorted ? (pane.folder.sortDescending ? " ▾" : " ▴") : "")
+                            font.bold: true
+                            font.pixelSize: 12
+                            color: sorted ? theme.accent : headerHover.hovered ? theme.foreground : theme.muted
+                            HoverHandler { id: headerHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: { pane.focusRequested(); pane.menuAction("sort:" + modelData.key) } }
+                        }
+                    }
                 }
             }
 
@@ -448,7 +519,19 @@ Rectangle {
                 required property bool isDir
                 required property string sizeText
                 required property string modified
+                required property string modifiedFull
+                required property double size
+                required property double age
+                required property string kind
+                required property string typeText
+                required property string extension
+                required property int childCount
+                required property string label
+                required property bool hidden
+                required property bool isLink
+                required property string linkTarget
                 required property var model
+                readonly property color labelColor: label !== "" ? theme.labelColor(label) : "transparent"
                 // Files in an rclone mount: "online", "local" or "pending".
                 readonly property string cloud: model.cloud ? model.cloud : ""
 
@@ -462,6 +545,7 @@ Rectangle {
                 border.color: theme.accent
                 color: pane.marked[path] ? Qt.alpha(theme.accent, 0.28)
                      : ListView.isCurrentItem ? Qt.alpha(theme.accent, pane.active ? 0.22 : 0.08)
+                     : label !== "" ? Qt.alpha(labelColor, 0.10)
                      : "transparent"
 
                 Drag.active: dragHandler.active
@@ -498,24 +582,80 @@ Rectangle {
                                          : row.cloud === "pending" ? qsTr("Waiting to upload")
                                          : qsTr("Online only"))
                     }
+                    Rectangle {
+                        Layout.preferredWidth: 8
+                        Layout.preferredHeight: 8
+                        radius: 4
+                        color: row.labelColor
+                    }
                     Label {
+                        Layout.preferredWidth: 16
+                        horizontalAlignment: Text.AlignHCenter
+                        text: theme.kindGlyph(row.kind)
+                        color: theme.kindColor(row.kind)
+                        opacity: row.hidden ? 0.5 : 1
+                    }
+                    Label {
+                        id: nameLabel
                         Layout.fillWidth: true
-                        text: row.isDir ? row.name + "/" : row.name
+                        readonly property color nameColor: row.label !== "" ? row.labelColor
+                                                         : row.isDir ? theme.accent
+                                                         : row.ListView.isCurrentItem ? theme.bright : theme.foreground
+                        // The extension is dimmed so the name reads first.
+                        readonly property int dot: row.isDir || row.extension === "" ? -1 : row.name.length - row.extension.length - 1
+                        textFormat: Text.StyledText
+                        text: (dot > 0 ? pane.escaped(row.name.slice(0, dot)) + "<font color='" + theme.muted + "'>" + pane.escaped(row.name.slice(dot)) + "</font>"
+                                       : pane.escaped(row.name) + (row.isDir ? "/" : ""))
+                              + (row.isLink ? "<font color='" + theme.muted + "'> ⇢</font>" : "")
                         elide: Text.ElideRight
-                        color: row.isDir ? theme.accent : row.ListView.isCurrentItem ? theme.bright : theme.foreground
+                        color: nameColor
+                        opacity: row.hidden ? 0.55 : 1
                         font.bold: row.ListView.isCurrentItem && pane.active
+                        HoverHandler { id: nameHover }
+                        ToolTip.visible: nameHover.hovered && (nameLabel.truncated || row.isLink)
+                        ToolTip.delay: 600
+                        ToolTip.text: row.isLink ? row.name + " → " + row.linkTarget : row.name
                     }
                     Label {
-                        Layout.preferredWidth: 80
-                        horizontalAlignment: Text.AlignRight
-                        text: row.sizeText
-                        color: theme.muted
-                    }
-                    Label {
-                        Layout.preferredWidth: 130
-                        text: row.modified
+                        visible: pane.wide
+                        Layout.preferredWidth: 140
+                        text: row.typeText
                         color: theme.muted
                         elide: Text.ElideRight
+                        font.pixelSize: 12
+                    }
+                    Item {
+                        Layout.preferredWidth: 90
+                        Layout.fillHeight: true
+                        Label {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.verticalCenterOffset: row.isDir ? 0 : -2
+                            text: row.isDir ? (row.childCount >= 0 ? qsTr("%n items", "", row.childCount) : "") : row.sizeText
+                            color: row.isDir ? Qt.alpha(theme.muted, 0.8) : theme.foreground
+                            font.pixelSize: row.isDir ? 12 : font.pixelSize
+                        }
+                        // How big the file is next to the largest one here.
+                        Rectangle {
+                            visible: !row.isDir && pane.folder.largestSize > 0
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: 3
+                            height: 2
+                            radius: 1
+                            width: Math.max(2, parent.width * row.size / pane.folder.largestSize)
+                            color: Qt.alpha(theme.kindColor(row.kind), 0.6)
+                        }
+                    }
+                    Label {
+                        Layout.preferredWidth: 110
+                        text: pane.ageText(row.age, row.modified)
+                        color: pane.ageColor(row.age)
+                        elide: Text.ElideRight
+                        HoverHandler { id: dateHover }
+                        ToolTip.visible: dateHover.hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: row.modifiedFull
                     }
                 }
 
@@ -576,9 +716,20 @@ Rectangle {
                 anchors.rightMargin: 12
                 spacing: 12
                 Label {
-                    text: pane.markedCount > 0 ? qsTr("%n marked", "", pane.markedCount) : qsTr("%n items", "", list.count)
+                    text: pane.markedCount > 0
+                          ? qsTr("%n marked", "", pane.markedCount) + "  ·  " + pane.folder.formatSize(pane.folder.sizeOf(Object.keys(pane.marked)))
+                          : qsTr("%n folders", "", pane.folder.folderCount) + "  ·  " + qsTr("%n files", "", pane.folder.fileCount)
+                            + "  ·  " + pane.folder.formatSize(pane.folder.totalSize)
                     color: pane.markedCount > 0 ? theme.accent : theme.muted
                     font.pixelSize: 12
+                }
+                Label {
+                    visible: list.currentItem !== null && list.currentItem.typeText !== undefined && !pane.wide
+                    text: list.currentItem ? list.currentItem.typeText : ""
+                    color: theme.muted
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 200
                 }
                 Item { Layout.fillWidth: true }
                 Label {

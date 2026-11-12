@@ -43,6 +43,11 @@ public:
     bool dark() const { return m_dark; }
     QString fontFamily() const;
     int radius() const { return m_radius; }
+    // The colour of a label ("red" … "gray") and of a kind of file.
+    Q_INVOKABLE QString labelColor(const QString &label) const;
+    Q_INVOKABLE QString kindColor(const QString &kind) const;
+    // A Nerd Font glyph for a kind of file.
+    Q_INVOKABLE static QString kindGlyph(const QString &kind);
 
     // The colours of an Omarchy colors.toml, with the ones it leaves out
     // taken from Omarchy's default theme (Tokyo Night), as Citadel does.
