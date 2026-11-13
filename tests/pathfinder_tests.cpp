@@ -2,6 +2,8 @@
 #include <QFile>
 #include <QImage>
 #include <QTemporaryDir>
+#include <QProcess>
+#include <QSignalSpy>
 #include <QtTest>
 
 #include "backend.h"
@@ -29,6 +31,50 @@ private slots:
         QCOMPARE(kind("main.cpp"), QString("code"));
         QCOMPARE(kind("readme.txt"), QString("text"));
         QCOMPARE(kind("mystery"), QString("file"));
+    }
+
+    void extractsBesideTheArchive()
+    {
+        QTemporaryDir dir;
+        const QString d = dir.path();
+        QVERIFY(QDir(d).mkpath("src/top"));
+        write(d + "/src/a.txt", "a");
+        write(d + "/src/b.txt", "b");
+        write(d + "/src/top/c.txt", "c");
+        auto run = [&](const QString &program, const QStringList &args) {
+            QProcess p;
+            p.setWorkingDirectory(d + "/src");
+            p.start(program, args);
+            return p.waitForFinished() && p.exitCode() == 0;
+        };
+        QVERIFY(run("bsdtar", {"-a", "-cf", d + "/two.zip", "a.txt", "b.txt"}));
+        QVERIFY(run("bsdtar", {"-a", "-cf", d + "/one.tar.gz", "top"}));
+        QVERIFY(run("gzip", {"-k", "a.txt"}));
+        QVERIFY(QFile::rename(d + "/src/a.txt.gz", d + "/a.txt.gz"));
+        QVERIFY(QDir(d).mkpath("two"));  // taken: the folder becomes "two (2)"
+
+        Backend backend;
+        QSignalSpy spy(&backend, &Backend::extracted);
+        auto extract = [&](const QString &name) {
+            QVERIFY(Backend::isArchive(d + "/" + name));
+            backend.extract(d + "/" + name);
+            QVERIFY(spy.wait(5000));
+            QCOMPARE(spy.last().at(2).toString(), QString());
+        };
+        extract("two.zip");
+        QCOMPARE(spy.last().at(1).toString(), d + "/two (2)");
+        QCOMPARE(read(d + "/two (2)/b.txt"), QByteArray("b"));
+        extract("one.tar.gz");
+        QCOMPARE(spy.last().at(1).toString(), d + "/top");
+        QCOMPARE(read(d + "/top/c.txt"), QByteArray("c"));
+        extract("a.txt.gz");
+        QCOMPARE(read(d + "/a.txt"), QByteArray("a"));
+        write(d + "/broken.zip", "not a zip");
+        backend.extract(d + "/broken.zip");
+        QVERIFY(spy.wait(5000));
+        QVERIFY(!spy.last().at(2).toString().isEmpty());
+        QVERIFY(QDir(d).entryList({"*.pathfinder-part"}, QDir::AllEntries | QDir::Hidden).isEmpty());
+        QVERIFY(!Backend::isArchive(d + "/src/b.txt"));
     }
 
     void labelsFollowRenamesAndMoves()

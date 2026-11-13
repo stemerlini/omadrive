@@ -349,6 +349,18 @@ ApplicationWindow {
         settings.sortDescending = sortDescending
     }
 
+    // Archives open by unpacking beside themselves; extracted() highlights the result.
+    property int extracting: 0
+    function extract(paths) {
+        var items = paths.filter(function (p) { return backend.isArchive(p) })
+        if (items.length === 0)
+            return
+        extracting += items.length
+        say(items.length === 1 ? qsTr("Extracting %1…").arg(items[0].split("/").pop())
+                               : qsTr("Extracting %n archives…", "", items.length), false)
+        items.forEach(function (p) { backend.extract(p) })
+    }
+
     function setLabel(label) {
         var items = activePane.targets()
         if (items.length === 0)
@@ -374,6 +386,9 @@ ApplicationWindow {
         else if (action === "paste") paste()
         else if (action === "copyPath") copyPaths()
         else if (action.startsWith("label:")) setLabel(action.slice(6))
+        else if (action === "extract") extract(activePane.targets())
+        else if (action.startsWith("extract:")) extract([action.slice(8)])
+        else if (action === "openExternal") backend.openExternally(activePane.currentPath())
         else if (action.startsWith("sort:")) sortBy(action.slice(5))
         else if (action === "share:view" || action === "share:edit") shareLink(action === "share:edit")
     }
@@ -493,6 +508,22 @@ ApplicationWindow {
     Connections {
         target: backend
         function onShared(text, isError) { win.say(text, isError) }
+        function onExtracted(archive, target, error) {
+            win.extracting = Math.max(0, win.extracting - 1)
+            if (error !== "") {
+                win.say(error, true)
+                return
+            }
+            var dir = archive.slice(0, archive.lastIndexOf("/")) || "/"
+            var pane = win.activePane
+            if (pane.folder.path !== dir)
+                return
+            // Stay here, with what came out of the archive highlighted.
+            pane.clearMarks()
+            pane.lastPath = target
+            pane.folder.refresh()
+            win.say(qsTr("Extracted %1").arg(target.split("/").pop()), false)
+        }
     }
 
     Shortcut { sequence: "Ctrl+A"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.activePane.markAll() }

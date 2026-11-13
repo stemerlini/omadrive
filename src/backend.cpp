@@ -1,9 +1,11 @@
 #include "backend.h"
 #include "labels.h"
+#include "folderlist.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QMimeDatabase>
 #include <QProcess>
 #include <QDesktopServices>
 #include <QDir>
@@ -216,4 +218,88 @@ void Backend::share(const QString &path, bool edit) {
         emit shared(tr("Could not get a link"), true);
     });
     process->start(QCoreApplication::applicationFilePath(), args);
+}
+
+// The tool that undoes a single compressed file, or empty for an archive.
+static QString decompressor(const QString &path) {
+    static const QHash<QString, QString> tools{
+        {"application/gzip", "gzip"},   {"application/x-gzip", "gzip"}, {"application/x-bzip2", "bzip2"},
+        {"application/x-bzip", "bzip2"}, {"application/x-xz", "xz"},    {"application/x-lzma", "xz"},
+        {"application/zstd", "zstd"},   {"application/x-zstd", "zstd"},
+    };
+    static const QMimeDatabase db;
+    return tools.value(db.mimeTypeForFile(path, QMimeDatabase::MatchExtension).name());
+}
+
+bool Backend::isArchive(const QString &path) {
+    const QFileInfo info(path);
+    return info.isFile() && FolderList::kindOf(path, false, false) == "archive";
+}
+
+void Backend::extract(const QString &path) {
+    const QFileInfo info(path);
+    const QString archive = info.absoluteFilePath();
+    const QString dir = info.absolutePath();
+    auto *process = new QProcess(this);
+    const QString tool = decompressor(archive);
+    auto fail = [this, archive, process](const QString &work) {
+        const QString detail = QString::fromUtf8(process->readAllStandardError()).trimmed().section('\n', -1);
+        if (QFileInfo(work).isDir())
+            QDir(work).removeRecursively();
+        else
+            QFile::remove(work);
+        emit extracted(archive, {}, tr("Could not extract %1").arg(QFileInfo(archive).fileName())
+                                        + (detail.isEmpty() ? QString() : ": " + detail));
+    };
+
+    if (!tool.isEmpty()) {
+        // notes.txt.gz -> notes.txt
+        const QString target = uniquePath(dir, info.completeBaseName());
+        const QString work = target + ".pathfinder-part";
+        process->setStandardOutputFile(work);
+        connect(process, &QProcess::finished, this, [this, process, archive, target, work, fail](int code, QProcess::ExitStatus status) {
+            process->deleteLater();
+            if (status != QProcess::NormalExit || code != 0 || !QFile::rename(work, target))
+                return fail(work);
+            emit extracted(archive, target, {});
+        });
+        connect(process, &QProcess::errorOccurred, this, [process, work, fail](QProcess::ProcessError error) {
+            if (error == QProcess::FailedToStart) { process->deleteLater(); fail(work); }
+        });
+        process->start(tool, {"-dc", "--", archive});
+        return;
+    }
+
+    // bsdtar refuses absolute paths and "..", so nothing lands outside `work`.
+    const QString work = uniquePath(dir, "." + info.fileName() + ".pathfinder-part");
+    if (!QDir().mkpath(work)) {
+        process->deleteLater();
+        emit extracted(archive, {}, tr("Cannot write in %1").arg(dir));
+        return;
+    }
+    QString stem = info.completeBaseName();
+    if (stem.endsWith(".tar", Qt::CaseInsensitive))
+        stem.chop(4);
+    connect(process, &QProcess::finished, this, [this, process, archive, dir, stem, work, fail](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        if (status != QProcess::NormalExit || code != 0)
+            return fail(work);
+        const auto items = QDir(work).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+        QString target;
+        if (items.size() == 1) {
+            target = uniquePath(dir, items.first().fileName());
+            if (!QFile::rename(items.first().absoluteFilePath(), target))
+                return fail(work);
+            QDir().rmdir(work);
+        } else {
+            target = uniquePath(dir, stem.isEmpty() ? QStringLiteral("extracted") : stem);
+            if (!QFile::rename(work, target))
+                return fail(work);
+        }
+        emit extracted(archive, target, {});
+    });
+    connect(process, &QProcess::errorOccurred, this, [process, work, fail](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) { process->deleteLater(); fail(work); }
+    });
+    process->start("bsdtar", {"-xf", archive, "-C", work});
 }

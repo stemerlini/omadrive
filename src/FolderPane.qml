@@ -163,6 +163,8 @@ Rectangle {
             lastPath = ""
             lastIndex = 0
             folder.path = path
+        } else if (backend.isArchive(path)) {
+            menuAction("extract:" + path)
         } else {
             backend.openExternally(path)
         }
@@ -246,6 +248,7 @@ Rectangle {
         readonly property bool many: pane.markedCount > 1
         readonly property bool isDir: pane.folder.isDirAt(list.currentIndex)
         readonly property bool cloud: pane.folder.cloudMount === true
+        readonly property bool archive: !isDir && backend.isArchive(pane.currentItemPath)
 
         AppMenuItem { text: qsTr("Open"); iconName: "menu-open"; hint: "Enter"; onTriggered: pane.menuAction("open") }
         AppMenuItem {
@@ -255,7 +258,9 @@ Rectangle {
             visible: menu.isDir
             onTriggered: pane.openInNewTab(pane.currentPath())
         }
-        AppMenuItem { text: qsTr("Preview"); iconName: "menu-preview"; hint: "Space"; visible: !menu.isDir; onTriggered: pane.menuAction("preview") }
+        AppMenuItem { text: qsTr("Preview"); iconName: "menu-preview"; hint: "Space"; visible: !menu.isDir && !menu.archive; onTriggered: pane.menuAction("preview") }
+        AppMenuItem { text: qsTr("Extract here"); iconName: "menu-extract"; hint: "Enter"; visible: menu.archive; onTriggered: pane.menuAction("extract") }
+        AppMenuItem { text: qsTr("Open with app"); iconName: "menu-open"; visible: menu.archive; onTriggered: pane.menuAction("openExternal") }
 
         MenuSeparator { visible: menu.cloud; height: visible ? implicitHeight : 0 }
         AppMenuItem {

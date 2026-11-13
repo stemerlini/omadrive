@@ -27,11 +27,18 @@ public:
     // Asks `pathfinder agent share` for a OneDrive link to a file in an rclone
     // mount and copies it; shared() reports how it went.
     Q_INVOKABLE void share(const QString &path, bool edit);
+    // Archives (zip, tar, 7z, rar, iso…) and single compressed files (.gz, .xz…).
+    Q_INVOKABLE static bool isArchive(const QString &path);
+    // Unpacks beside the archive, in the background. An archive holding one
+    // top-level item gives that item; anything else, a folder named after the
+    // archive. extracted() reports the result.
+    Q_INVOKABLE void extract(const QString &path);
 
     static QString uniquePath(const QString &directory, const QString &name);
 
 signals:
     void shared(const QString &message, bool isError);
+    void extracted(const QString &archive, const QString &target, const QString &error);
 
 private:
     QString copyOne(const QString &source, const QString &destination);
