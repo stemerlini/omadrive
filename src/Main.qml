@@ -349,7 +349,7 @@ ApplicationWindow {
         settings.sortDescending = sortDescending
     }
 
-    // Archives open by unpacking beside themselves; extracted() takes the pane there.
+    // Archives open by unpacking beside themselves; extracted() highlights the result.
     property int extracting: 0
     function extract(paths) {
         var items = paths.filter(function (p) { return backend.isArchive(p) })
@@ -518,14 +518,10 @@ ApplicationWindow {
             var pane = win.activePane
             if (pane.folder.path !== dir)
                 return
+            // Stay here, with what came out of the archive highlighted.
             pane.clearMarks()
-            // A lone archive goes straight into what came out of it.
-            if (win.extracting === 0 && backend.isDir(target)) {
-                pane.openFolder(target)
-            } else {
-                pane.lastPath = target
-                pane.folder.refresh()
-            }
+            pane.lastPath = target
+            pane.folder.refresh()
             win.say(qsTr("Extracted %1").arg(target.split("/").pop()), false)
         }
     }
